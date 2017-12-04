@@ -1,0 +1,62 @@
+/* IBM_PROLOG_BEGIN_TAG                                                   */
+/* This is an automatically generated prolog.                             */
+/*                                                                        */
+/* 53ipfl53H src/ipfl/kernext/netinet/snoop.h 1.1                         */
+/*                                                                        */
+/* Licensed Materials - Property of IBM                                   */
+/*                                                                        */
+/* Restricted Materials of IBM                                            */
+/*                                                                        */
+/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* All Rights Reserved                                                    */
+/*                                                                        */
+/* US Government Users Restricted Rights - Use, duplication or            */
+/* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
+/*                                                                        */
+/* IBM_PROLOG_END_TAG                                                     */
+/* @(#)42  1.2  src/ipfl/kernext/netinet/snoop.h, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/10/06 12:55:45 */
+/*
+ * Copyright (C) 1993-2001 by Darren Reed.
+ *
+ * See the IPFILTER.LICENCE file for details on licencing.
+ */
+
+#ifndef	__SNOOP_H__
+#define	__SNOOP_H__
+
+/*
+ * written to comply with the RFC (1761) from Sun.
+ * $Id: snoop.h,v 2.3 2001/06/09 17:09:23 darrenr Exp $
+ */
+struct	snoophdr	{
+	char	s_id[8];
+	int	s_v;
+	int	s_type;
+};
+
+#define	SNOOP_VERSION	2
+
+#define	SDL_8023	0
+#define	SDL_8024	1
+#define	SDL_8025	2
+#define	SDL_8026	3
+#define	SDL_ETHER	4
+#define	SDL_HDLC	5
+#define	SDL_CHSYNC	6
+#define	SDL_IBMCC	7
+#define	SDL_FDDI	8
+#define	SDL_OTHER	9
+
+#define	SDL_MAX		9
+
+
+struct	snooppkt	{
+	int	sp_olen;
+	int	sp_ilen;
+	int	sp_plen;
+	int	sp_drop;
+	int	sp_sec;
+	int	sp_usec;
+};
+
+#endif /* __SNOOP_H__ */

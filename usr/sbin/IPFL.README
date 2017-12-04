@@ -1,0 +1,30 @@
+# IBM_PROLOG_BEGIN_TAG 
+# This is an automatically generated prolog. 
+#  
+# 53ipfl53H src/ipfl/usr/sbin/IPFL.README 1.1 
+#  
+# Licensed Materials - Property of IBM 
+#  
+# Restricted Materials of IBM 
+#  
+# (C) COPYRIGHT International Business Machines Corp. 2006 
+# All Rights Reserved 
+#  
+# US Government Users Restricted Rights - Use, duplication or 
+# disclosure restricted by GSA ADP Schedule Contract with IBM Corp. 
+#  
+# IBM_PROLOG_END_TAG 
+These are AIX specific instructions, for ipfilters kernel extension.
+
+1. To load the ipfilters kernel extension,
+	# /usr/lib/methods/cfg_ipf -l
+
+2. To unload the ipfilters kernel extension,
+	# /usr/lib/methods/cfg_ipf -u
+
+3. When NAT is enabled (or when packet forwarding is expected), ipforwarding
+needs to be enabled on the system.
+	# no -o ipforwarding=1
+
+All the commands like ipfstat, ipnat, etc. reside in /usr/sbin directory.
+Kernel extension itself resides in /usr/lib/drivers (as 'ipf').
