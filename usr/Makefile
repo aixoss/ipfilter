@@ -18,4 +18,8 @@
 SUBDIRS = lib sbin
 EXPLIB_SUBDIRS = lib
 
-.include <${RULES_MK}>
+#.include <${RULES_MK}>
+all:
+	for i in $(SUBDIRS); do \
+		(cd $$i && $(MAKE) $(MAKEFLAGS)); \
+	done
