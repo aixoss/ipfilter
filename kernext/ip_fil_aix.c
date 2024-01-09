@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/ip_fil_aix.c 1.6                            */
+/* 53ipfl53H src/ipfl/kernext/ip_fil_aix.c 1.7                            */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* COPYRIGHT International Business Machines Corp. 2006,2010              */
+/* COPYRIGHT International Business Machines Corp. 2006,2016              */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)02  1.6  src/ipfl/kernext/ip_fil_aix.c, ipflt, 53ipfl53H, 1016A_53ipfl53H 3/25/10 06:31:27";
+static char sccsid[] = "@(#)02  1.7  src/ipfl/kernext/ip_fil_aix.c, ipflt, 53ipfl53H, 1737A_53ipfl53H 11/4/16 03:27:55";
 /*
  * Copyright (C) 1993-2003 by Darren Reed.
  *
@@ -46,7 +46,7 @@ static const char rcsid[] = "@(#)$Id: ip_fil_aix.c,v 2.1.2.2 2006/03/25 13:03:00
 #include <sys/protosw.h>
 #include <sys/socket.h>
 #include <sys/device.h>
-
+#include <sys/timer.h>
 #include <net/if.h>
 #include <net/route.h>
 #include <netinet/in.h>
@@ -161,6 +161,10 @@ const struct devsw ipfdevsw  = {
 lock_t ipf_cfglock = LOCK_AVAIL;
 int ipl_is_open[IPL_LOGMAX+1] = {0};
 
+#if defined (AIX)
+struct trb *trb;
+#endif /*(AIX)*/
+
 int ipfconfig(devno, cmd, uiop)
 dev_t devno;
 int cmd;
@@ -183,11 +187,35 @@ struct uio *uiop;
 			unpincode(ipfconfig);
 			break;
 		}
-		if ((error = ipfattach()) != 0 ) {
+
+#if defined (AIX)
+		/*
+		 * CFG_INIT may be called multiple times. But we need to initialize the trb only once.
+		 * Hence, check if trb is NULL here.
+		 */
+		if (trb == NULL) {
+			trb = talloc();
+		
+			if (trb == NULL ) {
+				(void) devswdel(devno);
+				unpincode(ipfconfig);
+				break;
+			}
+		}
+
+		if ((error = ipfattach()) != 0 && error != EBUSY) {
+			if (trb != NULL)
+			{
+				tfree(trb);
+				trb = NULL;
+			}
+
 			(void) devswdel(devno);
 			unpincode(ipfconfig);
 			break;
 		}
+#endif /*(AIX)*/
+
 		for (i=0; i <= IPL_LOGMAX; i++)
 			ipl_is_open[i] = 0;
 		break;
@@ -200,6 +228,18 @@ struct uio *uiop;
 		}
 		if (error != EBUSY) {
 			error = ipldetach();
+
+#if defined (AIX)
+			/*
+			 * CFG_TERM can be called multiple times. To avoid
+			 * multiple tfree(), we need to check trb is not NULL here.
+			 */
+			if (trb != NULL)
+			{
+				tfree(trb);
+				trb = NULL;
+			}
+#endif
 			(void) devswdel(devno);
 			unpincode(ipfconfig);
 		}
@@ -220,7 +260,9 @@ struct uio *uiop;
 int ipfattach()
 {
 	int s, rc;
-
+#if defined (AIX)
+	int ticks;
+#endif /* AIX */
 	SPL_NET(s);
 #if 0
 	if ((fr_running > 0) || (inbound_fw == fr_check_inbound)) {
@@ -255,13 +297,48 @@ int ipfattach()
 		ipforwarding = 1;
 
 	SPL_X(s);
+#if defined(AIX)
+	READ_ENTER(&ipf_global);
+	ticks = (hz / IPF_HZ_DIVIDE) * IPF_HZ_MULT;
+	rc = ipfl_start_timer(ticks);
+	RWLOCK_EXIT(&ipf_global);
+	return rc;
+#else
 	rc = timeoutcf(2);
 	timeout(fr_slowtimer, NULL, (hz / IPF_HZ_DIVIDE) * IPF_HZ_MULT);
 
 	return 0;
+#endif /*AIX*/
 }
 
+#if defined (AIX)
+/*
+ * ipfl_start_timer(): initializes trb and starts timer.
+ * This function is used to solve the defect 997640
+ */
+int ipfl_start_timer(int tick)
+{
+	struct itimerstruc_t tv;
 
+	if (trb==NULL)
+		return ENOBUFS;
+
+	tv.it_value.tv_sec  =  (tick) / HZ;
+	tv.it_value.tv_nsec = (tick % HZ) * (NS_PER_SEC / HZ);
+
+	trb->timeout = tv;
+	trb->flags = 0;
+	trb->func = fr_slowtimer;
+	trb->ipri = INTTIMER;
+	trb->func_data =  NULL;
+	trb->id = -1;
+
+	tstart(trb);
+
+	return 0;
+
+}
+#endif /*AIX*/
 /*
  * Disable the filter by removing the hooks from the IP input/output
  * stream.
@@ -273,9 +350,15 @@ int ipldetach()
 	if ((fr_running < 1) || (ip_fltr_in_hook == NULL ))
                 return 0;
 
-
+#if !defined (AIX)
 	untimeout(fr_slowtimer, NULL);
 	rc = timeoutcf(-2);
+#endif /*AIX*/
+
+#if defined (AIX)
+	while (tstop(trb));
+	trb->func = NULL;
+#endif /* AIX*/
 	SPL_NET(s);
 
 #if 0

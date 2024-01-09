@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/usr/lib/methods/cfg_ipf.c 1.2                       */
+/* 53ipfl53H src/ipfl/usr/lib/methods/cfg_ipf.c 1.3                       */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006,2016              */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)99  1.2  src/ipfl/usr/lib/methods/cfg_ipf.c, ipflt, 53ipfl53H, 0624A_53ipfl53H 6/13/06 18:40:57";
+static char sccsid[] = "@(#)99  1.3  src/ipfl/usr/lib/methods/cfg_ipf.c, ipflt, 53ipfl53H, 1737A_53ipfl53H 11/2/16 02:33:08";
 /*
  * Copyright (C) 2005 by Darren Reed.
  *
@@ -284,6 +284,7 @@ queryipf(int major, int minor, dev_t devno)
 	struct cfg_load cfg;
 	int i;
 
+	bzero(&cfg, sizeof(cfg));
 	cfg.path = "/usr/lib/drivers/ipf";
 	cfg.kmid = 0;
 	if (sysconfig(SYS_QUERYLOAD, &cfg, sizeof(cfg)) == -1) {
