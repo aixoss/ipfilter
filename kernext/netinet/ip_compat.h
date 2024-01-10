@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/netinet/ip_compat.h 1.5                     */
+/* 53ipfl53H src/ipfl/kernext/netinet/ip_compat.h 1.6                     */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* COPYRIGHT International Business Machines Corp. 2006,2009              */
+/* COPYRIGHT International Business Machines Corp. 2006,2015              */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-/* @(#)20  1.5  src/ipfl/kernext/netinet/ip_compat.h, ipflt, 53ipfl53H, 1016A_53ipfl53H 10/9/09 03:41:25 */
+/* @(#)20  1.6  src/ipfl/kernext/netinet/ip_compat.h, ipflt, 53ipfl53H, 1537A_53ipfl53H 3/28/15 05:50:03 */
 /*
  * Copyright (C) 1993-2001, 2003 by Darren Reed.
  *
@@ -1319,9 +1319,11 @@ extern void* getifp __P((char *, int));
 #endif /* __64BIT_KERNEL */
 #if 0
 #  define	SLEEP(id, n)	sleepx((id), PZERO+1, 0)
+#  define	SLEEPWAKEONSIG(id, n)	sleepx((id), PZERO+1, (SWAKEONSIG | PCATCH))
 #  define	WAKEUP(id,x)	wakeup(id)
 #else
 #  define       SLEEP(x, s)     sleepx(x##_aix, PZERO+1, 0)
+#  define	SLEEPWAKEONSIG(x, s)     sleepx(x##_aix, PZERO+1, (SWAKEONSIG | PCATCH))
 #  define       WAKEUP(x, y)    e_wakeup(x##_aix + y)
 #endif
 #  define	POLLWAKEUP(x)	;

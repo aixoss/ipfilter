@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/ip_frag.c 1.3                               */
+/* 53ipfl53H src/ipfl/kernext/ip_frag.c 1.5                               */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* COPYRIGHT International Business Machines Corp. 2006,2007              */
+/* COPYRIGHT International Business Machines Corp. 2006,2023              */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)03  1.3  src/ipfl/kernext/ip_frag.c, ipflt, 53ipfl53H, 0813A_53ipfl53H 1/16/07 05:17:05";
+static char sccsid[] = "@(#)03  1.5  src/ipfl/kernext/ip_frag.c, ipflt, 53ipfl53H, 2330A_53ipfl53H 7/14/23 02:12:48";
 /*
  * Copyright (C) 1993-2003 by Darren Reed.
  *
@@ -30,6 +30,7 @@ static char sccsid[] = "@(#)03  1.3  src/ipfl/kernext/ip_frag.c, ipflt, 53ipfl53
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/time.h>
+#include <sys/timer.h>
 #include <sys/file.h>
 #ifdef __hpux
 # include <sys/timeout.h>
@@ -121,7 +122,9 @@ static const char sccsid[] = "@(#)ip_frag.c	1.11 3/24/96 (C) 1993-2000 Darren Re
 static const char rcsid[] = "@(#)$Id: ip_frag.c,v 2.77.2.5 2006/02/26 08:26:54 darrenr Exp $";
 #endif
 */
-
+#if defined (AIX)
+extern int ipfl_start_timer(int);
+#endif /*AIX*/
 static ipfr_t   *ipfr_list = NULL;
 static ipfr_t   **ipfr_tail = &ipfr_list;
 static ipfr_t	**ipfr_heads;
@@ -637,6 +640,15 @@ u_32_t *passp;
 		fin->fin_fr = fr;
 		if (fr != NULL) {
 			pass = fr->fr_flags;
+			if ((pass & FR_KEEPSTATE) != 0) {
+				/*
+				 * Reset the keep state flag here so that we
+				 * don't try and add a new state entry because
+				 * of a match here. That leads to blocking of
+				 * the packet later because the add fails.
+				 */
+				pass &= ~FR_KEEPSTATE;
+			}
 			if ((pass & FR_LOGFIRST) != 0)
 				pass &= ~(FR_LOGFIRST|FR_LOG);
 			*passp = pass;
@@ -842,7 +854,9 @@ int fr_slowtimer()
 # endif
 {
 	READ_ENTER(&ipf_global);
-
+#if defined (AIX)
+	int ticks;
+#endif
 	fr_fragexpire();
 	fr_timeoutstate();
 	fr_natexpire();
@@ -863,7 +877,13 @@ int fr_slowtimer()
 #     ifdef linux
 	;
 #     else
+#      if defined (AIX)
+	ticks = (hz/2);
+	if(ipfl_start_timer(ticks) != 0)
+		goto done;
+#      else
 	timeout(fr_slowtimer, NULL, hz/2);
+#		endif /*aix*/
 #     endif
 #    endif /* FreeBSD */
 #   endif /* OpenBSD */

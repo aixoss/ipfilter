@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/usr/sbin/ippool_y.y 1.1                             */
+/* 53ipfl53H src/ipfl/usr/sbin/ippool_y.y 1.3                             */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006,2022              */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-/* @(#)72  1.2  src/ipfl/usr/sbin/ippool_y.y, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/10/06 15:24:18 */
+/* @(#)72  1.3  src/ipfl/usr/sbin/ippool_y.y, ipflt, 53ipfl53H, 2226A_53ipfl53H 4/22/22 03:58:11 */
 %{
 #include <sys/types.h>
 #include <sys/time.h>
@@ -49,6 +49,13 @@
 #include "kmem.h"
 
 #define	YYDEBUG	1
+
+/* Increasing the YYMAXDEPTH (maximum size the stacks can grow) 
+ * to a higher value so that more IP entries in ippool table can be 
+ * accommodate */
+#ifndef YYMAXDEPTH
+#define YYMAXDEPTH 0x000fffff 
+#endif
 
 extern	int	yyparse __P((void));
 extern	int	yydebug;

@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/ip_log.c 1.3                                */
+/* 53ipfl53H src/ipfl/kernext/ip_log.c 1.4                                */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* COPYRIGHT International Business Machines Corp. 2006,2011              */
+/* COPYRIGHT International Business Machines Corp. 2006,2015              */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)05  1.3  src/ipfl/kernext/ip_log.c, ipflt, 53ipfl53H, 1205A_53ipfl53H 6/27/11 04:27:03";
+static char sccsid[] = "@(#)05  1.4  src/ipfl/kernext/ip_log.c, ipflt, 53ipfl53H, 1537A_53ipfl53H 3/28/15 05:51:06";
 /*
  * Copyright (C) 1997-2003 by Darren Reed.
  *
@@ -618,7 +618,7 @@ struct uio *uio;
 		MUTEX_EXIT(&ipl_mutex);
 		SPL_X(s);
 		locknest = lockl(&kernel_lock, LOCK_SHORT);
-		error = SLEEP(unit + iplh, "ipl sleep");
+		error = SLEEPWAKEONSIG(unit + iplh, "ipl sleep");
 		if (locknest != LOCK_NEST)
 			unlockl(&kernel_lock);
 #   endif /* __osf__ */

@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/ip_nat.c 1.4                                */
+/* 53ipfl53H src/ipfl/kernext/ip_nat.c 1.5                                */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* COPYRIGHT International Business Machines Corp. 2006,2008              */
+/* COPYRIGHT International Business Machines Corp. 2006,2016              */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)07  1.4  src/ipfl/kernext/ip_nat.c, ipflt, 53ipfl53H, 0834A_53ipfl53H 4/17/08 08:35:35";
+static char sccsid[] = "@(#)07  1.5  src/ipfl/kernext/ip_nat.c, ipflt, 53ipfl53H, 1617A_53ipfl53H 4/1/16 04:58:38";
 /*
  * Copyright (C) 1995-2003 by Darren Reed.
  *
@@ -3884,8 +3884,15 @@ u_32_t nflags;
 	if (csump != NULL) {
 		if (nat->nat_dir == NAT_OUTBOUND)
 			fix_outcksum(fin, csump, nat->nat_sumd[1]);
-		else
-			fix_incksum(fin, csump, nat->nat_sumd[1]);
+		else {
+#if defined(AIX)
+			if (!(fin->fin_m != NULL && fin->fin_m->m_flags & M_LARGESEND)) {
+#endif
+					fix_incksum(fin, csump, nat->nat_sumd[1]);
+#if defined(AIX)
+				}
+#endif
+			}
 	}
 #ifdef	IPFILTER_SYNC
 	ipfsync_update(SMC_NAT, fin, nat->nat_sync);
