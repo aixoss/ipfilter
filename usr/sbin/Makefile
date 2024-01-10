@@ -23,28 +23,56 @@ ILIST = ${PROGRAMS} IPFL.README
 IPFL.README_IDIR = /usr/lpp/ipfl/
 IDIR = /usr/sbin/
 
-INCFLAGS = -I${MAKETOP}/ipfl/kernext -I${MAKETOP}/ipfl/kernext/netinet
-LIBFLAGS = -L${EXPORTBASE}/usr/lib/ipfilter
-VPATH = .:${MAKETOP}/ipfl/usr/lib
+MAKETOP = ../..
+INCFLAGS = -I${MAKETOP}/kernext -I${MAKETOP}/kernext/netinet
+LIBFLAGS = -L${MAKETOP}/usr/lib
+VPATH = ${MAKETOP}/usr/lib
 
 LIBS = -lipf
-CFLAGS = -D_AIX -D_AIX51 -DAIX
+CFLAGS = -D_AIX -D_AIX51 -DAIX -D_NOGETDELIM $(INCFLAGS)
+LDFLAGS = $(LIBFLAGS)
 
 ipf_OFILES = ipf.o ipfcomp.o ipf_y.o ipf_l.o
 ipfs_OFILES = ipfs.o
 ipfstat_OFILES = ipfstat.o
 ipmon_OFILES = ipmon.o ipmon_y.o ipmon_l.o
 ipnat_OFILES = ipnat.o ipnat_y.o ipnat_l.o
-ippool_OFILES = ippool_y.o ippool_l.o kmem.o ippool.o
+ippool_OFILES = ippool_y.o ippool_l.o ${MAKETOP}/usr/lib/kmem.o ippool.o
 ipscan_OFILES = ipscan_y.o ipscan_l.o
 ipsyncm_OFILES = ipsyncm.o
 ipsyncs_OFILES = ipsyncs.o
 
-.include <${RULES_MK}>
+RM  = /usr/bin/rm
+SED = /usr/bin/sed
+
+#.include <${RULES_MK}>
+
+all:	$(PROGRAMS)
+
+clean:
+	$(RM) -f $(PROGRAMS) *.o *_[ly].c
+
+ipf:	$(ipf_OFILES)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(ipf_OFILES) $(LIBS)
+
+ipmon:	$(ipmon_OFILES)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(ipmon_OFILES) $(LIBS)
+
+ipnat:	$(ipnat_OFILES)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(ipnat_OFILES) $(LIBS)
+
+ippool:	$(ippool_OFILES)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(ippool_OFILES) $(LIBS)
+
+ipscan:	$(ipscan_OFILES)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(ipscan_OFILES) $(LIBS)
+
+ipfstat:	$(ipfstat_OFILES)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(ipfstat_OFILES) $(LIBS)
 
 ipf_y.h: ipf_y.c
 ipf_y.c: ipf_l.h
-	${YACC} -d $<
+	${YACC} ${YFLAGS} -d $<
 	${SED} -e 's/yy/ipf_yy/g' -e 's/y.tab.c/ipf_y.c/' \
 		y.tab.c > $@
 	${SED} -e 's/yy/ipf_yy/g' -e 's/y.tab.h/ipf_y.h/' \
@@ -52,25 +80,25 @@ ipf_y.c: ipf_l.h
 	${RM} -f y.tab.c y.tab.h
 ipf_l.c: lexer.c ipf_y.h
 	${SED} -e 's/yy/ipf_yy/g' -e 's/y.tab.h/ipf_y.h/' \
-		-e 's/lexer.h/ipf_l.h/' ${lexer.c:P} > $@
+		-e 's/lexer.h/ipf_l.h/' lexer.c > $@
 ipf_l.h: lexer.h
-	${SED} -e 's/yy/ipf_yy/g' ${lexer.h:P} > $@
+	${SED} -e 's/yy/ipf_yy/g' lexer.h > $@
 
 ipmon_y.h: ipmon_y.c
 ipmon_y.c: ipmon_l.h
-	${YACC} -d $<
+	${YACC} ${YFLAGS} -d $<
 	${SED} -e 's/yy/ipmon_yy/g' y.tab.c > $@
 	${SED} -e 's/yy/ipmon_yy/g' y.tab.h > ipmon_y.h
 	${RM} -f y.tab.c y.tab.h
 ipmon_l.c: lexer.c ipmon_y.h
 	${SED} -e 's/yy/ipmon_yy/g' -e 's/y.tab.h/ipmon_y.h/' \
-		-e 's/lexer.h/ipmon_l.h/' ${lexer.c:P} > $@
+		-e 's/lexer.h/ipmon_l.h/' lexer.c > $@
 ipmon_l.h: lexer.h
-	${SED} -e 's/yy/ipmon_yy/g' ${lexer.h:P} > $@
+	${SED} -e 's/yy/ipmon_yy/g' lexer.h > $@
 
 ipnat_y.h: ipnat_y.c
 ipnat_y.c: ipnat_l.h
-	${YACC} -d $<
+	${YACC} ${YFLAGS} -d $<
 	${SED} -e 's/yy/ipnat_yy/g' -e 's/y.tab.c/ipnat_y.c/' \
 		y.tab.c > $@
 	${SED} -e 's/yy/ipnat_yy/g' -e 's/y.tab.h/ipnat_y.h/' \
@@ -78,30 +106,35 @@ ipnat_y.c: ipnat_l.h
 	${RM} -f y.tab.c y.tab.h
 ipnat_l.c: lexer.c ipnat_y.h
 	${SED} -e 's/yy/ipnat_yy/g' -e 's/y.tab.h/ipnat_y.h/' \
-		-e 's/lexer.h/ipnat_l.h/' ${lexer.c:P} > $@
+		-e 's/lexer.h/ipnat_l.h/' lexer.c > $@
 ipnat_l.h: lexer.h
-	${SED} -e 's/yy/ipnat_yy/g' ${lexer.h:P} > $@
+	${SED} -e 's/yy/ipnat_yy/g' lexer.h > $@
 
 ippool_y.h: ippool_y.c
 ippool_y.c: ippool_l.h
-	${YACC} -d $<
+	${YACC} ${YFLAGS} -d $<
 	${SED} -e 's/yy/ippool_yy/g' y.tab.c > $@
 	${SED} -e 's/yy/ippool_yy/g' y.tab.h > ippool_y.h
 	${RM} -f y.tab.c y.tab.h
 ippool_l.c: lexer.c ippool_y.h
 	${SED} -e 's/yy/ippool_yy/g' -e 's/y.tab.h/ippool_y.h/' \
-		-e 's/lexer.h/ippool_l.h/' ${lexer.c:P} > $@
+		-e 's/lexer.h/ippool_l.h/' lexer.c > $@
 ippool_l.h: lexer.h
-	${SED} -e 's/yy/ippool_yy/g' ${lexer.h:P} > $@
+	${SED} -e 's/yy/ippool_yy/g' lexer.h > $@
 
 ipscan_y.h: ipscan_y.c
 ipscan_y.c: ipscan_l.h
-	${YACC} -d $<
+	${YACC} ${YFLAGS} -d $<
 	${SED} -e 's/yy/ipscan_yy/g' y.tab.c > $@
 	${SED} -e 's/yy/ipscan_yy/g' y.tab.h > ipscan_y.h
 	${RM} -f y.tab.c y.tab.h
 ipscan_l.c: lexer.c ipscan_y.h
 	${SED} -e 's/yy/ipscan_yy/g' -e 's/y.tab.h/ipscan_y.h/' \
-		-e 's/lexer.h/ipscan_l.h/' ${lexer.c:P} > $@
+		-e 's/lexer.h/ipscan_l.h/' lexer.c > $@
 ipscan_l.h: lexer.h
-	${SED} -e 's/yy/ipscan_yy/g' ${lexer.h:P} > $@
+	${SED} -e 's/yy/ipscan_yy/g' lexer.h > $@
+
+${MAKETOP}/usr/lib/kmem.o:	${MAKETOP}/usr/lib/kmem.c
+	cd ${MAKETOP}/usr/lib && make kmem.o
+
+
