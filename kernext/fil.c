@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/fil.c 1.1                                   */
+/* 53ipfl53H src/ipfl/kernext/fil.c 1.3                                   */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006,2024              */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)00  1.2  src/ipfl/kernext/fil.c, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/10/06 14:44:33";
+static char sccsid[] = "@(#)00  1.3  src/ipfl/kernext/fil.c, ipflt, 53ipfl53H 7/12/24 05:56:14";
 /*
  * Copyright (C) 1993-2003 by Darren Reed.
  *
@@ -3391,7 +3391,7 @@ minor_t unit;
 int *nfreedp;
 frentry_t **listp;
 {
-	int freed = 0, i;
+	int freed = 0;
 	frentry_t *fp;
 
 	while ((fp = *listp) != NULL) {
@@ -3402,8 +3402,7 @@ frentry_t **listp;
 		}
 		*listp = fp->fr_next;
 		if (fp->fr_grp != NULL) {
-			i = frflushlist(set, unit, nfreedp, fp->fr_grp);
-			fp->fr_ref -= i;
+			(void) frflushlist(set, unit, nfreedp, fp->fr_grp);
 		}
 
 		if (fp->fr_grhead != NULL) {
@@ -4408,6 +4407,15 @@ caddr_t data;
 		if (!f)
 			error = ESRCH;
 		else {
+                        /* Defect: 1181120 Decrement ippool refcnt as it was incremented while parsing the configuration */ 
+		        if (fp->fr_srcptr && f->fr_type == FR_T_IPF && f->fr_satype == FRI_LOOKUP)
+		        {
+		        	ip_lookup_deref(f->fr_srctype, f->fr_srcptr);
+		        }
+		        if (fp->fr_dstptr && f->fr_type == FR_T_IPF && f->fr_datype == FRI_LOOKUP)
+		        {
+			        ip_lookup_deref(f->fr_dsttype, f->fr_dstptr);
+		        }
 			/*
 			 * Do not allow activity from user space to interfere
 			 * with rules not loaded that way.
@@ -4430,8 +4438,6 @@ caddr_t data;
 			    (f->fr_isc != (struct ipscan *)-1))
 				ipsc_detachfr(f);
 #endif
-			if ((fg != NULL) && (fg->fg_head != NULL))
-				fg->fg_head->fr_ref--;
 			if (unit == IPL_LOGAUTH) {
 				error = fr_preauthcmd(req, f, ftail);
 				goto done;
@@ -4448,7 +4454,18 @@ caddr_t data;
 		 * Not removing, so we must be adding/inserting a rule.
 		 */
 		if (f)
-			error = EEXIST;
+                {
+                    /* Defect: 1181120 Decrement ippool refcnt as it was incremented while parsing the configuration */ 
+		    if (fp->fr_srcptr && f->fr_type == FR_T_IPF && f->fr_satype == FRI_LOOKUP)
+                    {
+			ip_lookup_deref(f->fr_srctype, f->fr_srcptr);
+                    }
+		    if (fp->fr_dstptr && f->fr_type == FR_T_IPF && f->fr_datype == FRI_LOOKUP)
+                    {
+			ip_lookup_deref(f->fr_dsttype, f->fr_dstptr);
+                    }
+		    error = EEXIST;
+		}
 		else {
 			if (unit == IPL_LOGAUTH) {
 				error = fr_preauthcmd(req, fp, ftail);
@@ -4459,8 +4476,6 @@ caddr_t data;
 			} else
 				f = fp;
 			if (f != NULL) {
-				if (fg != NULL && fg->fg_head != NULL)
-					fg->fg_head->fr_ref++;
 				if (fp != f)
 					bcopy((char *)fp, (char *)f,
 					      sizeof(*f));
