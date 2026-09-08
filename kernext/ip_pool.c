@@ -78,8 +78,8 @@ struct file;
 # include "radix_ipf_local.h"
 # define _RADIX_H_
 #endif
-#include <net/if.h>
 #include <netinet/in.h>
+#include <net/if.h>
 #if defined(_KERNEL) && defined(AIX)
 # include <sys/mbuf.h>
 #endif

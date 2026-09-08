@@ -57,8 +57,13 @@ ioctlfunc_t iocfunc;
 
 	if ((*iocfunc)(poolfd, SIOCLOOKUPDELTABLE, &op))
 		if ((opts & OPT_DONOTHING) == 0) {
-			perror("remove_pool:SIOCLOOKUPDELTABLE");
-			return -1;
+			if (errno == EBUSY) {
+				printf("Warning remove_pool : Pool %s still used\n", op.iplo_name);
+				return errno;
+			} else {
+				perror("remove_pool:SIOCLOOKUPDELTABLE");
+				return -1;
+			}
 		}
 
 	return 0;

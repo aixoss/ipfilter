@@ -59,8 +59,13 @@ ioctlfunc_t iocfunc;
 	if ((opts & OPT_REMOVE) == 0) {
 		if ((*iocfunc)(poolfd, SIOCLOOKUPADDTABLE, &op))
 			if ((opts & OPT_DONOTHING) == 0) {
-				perror("load_pool:SIOCLOOKUPADDTABLE");
-				return -1;
+				if (errno == EEXIST) {
+					fprintf(stderr, "Warning load_pool : Pool %s already exists\n", op.iplo_name);
+					return errno;
+				} else {
+					perror("load_pool:SIOCLOOKUPADDTABLE");
+					return -1;
+				}
 			}
 	}
 
@@ -79,8 +84,16 @@ ioctlfunc_t iocfunc;
 	if ((opts & OPT_REMOVE) != 0) {
 		if ((*iocfunc)(poolfd, SIOCLOOKUPDELTABLE, &op))
 			if ((opts & OPT_DONOTHING) == 0) {
-				perror("load_pool:SIOCLOOKUPDELTABLE");
-				return -1;
+				if (errno == EBUSY) {
+					fprintf(stderr,"Warning load_pool : Pool %s still used\n", op.iplo_name);
+					return errno;
+				} else if (errno == ESRCH) {
+					fprintf(stderr,"Warning load_pool : Pool %s does not exist\n", op.iplo_name);
+					return errno;
+				} else {
+					perror("load_pool:SIOCLOOKUPDELTABLE");
+					return -1;
+				}
 			}
 	}
 	return 0;

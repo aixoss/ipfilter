@@ -15,47 +15,48 @@
 # disclosure restricted by GSA ADP Schedule Contract with IBM Corp. 
 #  
 # IBM_PROLOG_END_TAG 
-.include <${MAKETOP}bos/kernext/Kernext.mk>
 
-VPATH = .:${MAKETOP}/bos/kernel/exp:${MAKETOP}/bos/kernext/inet
+MAKETOP=../..
+INCFLAGS = -I${MAKETOP}/kernext -I${MAKETOP}/kernext/netinet -include strings.h
+CC = gcc
 
-DUALMODE_KEXT   = true
+all:   ipf
 
-KERNEL_EXT = ipf
-KERNEL_EXT32 = ipf32
-KERNEL_EXT64 = ipf64
-
-IDIR            = /usr/lib/drivers/
-ILIST           = ${KERNEL_EXT}
-
-LIBS            = ${KERNEXT_LIBS}
-
-ipf32_ENTRYPOINT = ipfconfig
-ipf64_ENTRYPOINT = ipfconfig
+clean:
+	rm -f *.o ipf
 
 KERNEXT_IMPORTS += sockets.exp kernex.exp netinet.exp statcmd.exp 
 
-INCFLAGS = -I./netinet
-CFLAGS = -DAIX -D_AIX -D_AIX51 -DIPFILTER_LKM -DIPFILTER_LOG \
-	-DIPFILTER_LOOKUP -DIPFILTER_SCAN -DKERNEL -D_KERNEL -DINET
+INCFLAGS = -I. -I./netinet -include strings.h
+CFLAGS = -O2 -nostdlib -DAIX -D_AIX -D_AIX51 -DIPFILTER_LKM -DIPFILTER_LOG \
+	-DIPFILTER_LOOKUP -DIPFILTER_SCAN -DKERNEL -D_KERNEL -DINET ${INCFLAGS}
 FIXRADIX = -Dradix_node=ipf_radix_node -Dradix_node_head=ipf_radix_node_head \
 	-Drn_inithead=ipf_rn_inithead -Drn_walktree=ipf_rn_walktree
 
-fil.o_CFLAGS = ${CFLAGS} -DIPF_DEFAULT_PASS=FR_PASS
-ip_state.o_CFLAGS = ${CFLAGS} -DIPSTATE_SIZE=127
-ip_pool.o_CFLAGS = ${CFLAGS} ${FIXRADIX}
-ip_lookup.o_CFLAGS = ${CFLAGS} ${FIXRADIX}
+fil.o:  fil.c
+	${CC} -maix64 ${CFLAGS} -DIPF_DEFAULT_PASS=FR_PASS -c $< -o $@
 
-fil.64o_CFLAGS = ${CFLAGS} -DIPF_DEFAULT_PASS=FR_PASS
-ip_state.64o_CFLAGS = ${CFLAGS} -DIPSTATE_SIZE=127
-ip_pool.64o_CFLAGS = ${CFLAGS} ${FIXRADIX}
-ip_lookup.64o_CFLAGS = ${CFLAGS} ${FIXRADIX}
+ip_state.o: ip_state.c
+	${CC} -maix64 ${CFLAGS} -DIPSTATE_SIZE=249989 -DIPSTATE_MAX=1000000 -DIPSTATE_MAXBUCKET=256 -c $< -o $@
+
+ip_pool.o: ip_pool.c
+	${CC} ${CFLAGS} ${FIXRADIX} -maix64 -c $< -o $@
+
+ip_lookup.o: ip_lookup.c
+	${CC} ${CFLAGS} ${FIXRADIX} -maix64 -c $< -o $@
+
+radix.o: radix.c
+	${CC} ${CFLAGS} ${FIXRADIX} -maix64 -c $< -o $@
+
+ip_fil_aix.o: ip_fil_aix.c
+	${CC} ${CFLAGS} -maix64 -c $< -o $@
+
+%.o:  %.c
+	${CC} ${CFLAGS} -maix64 -c $< -o $@
 
 OBJFILES = ip_fil_aix.o fil.o md5.o ip_nat.o ip_frag.o ip_state.o \
 	ip_proxy.o ip_auth.o ip_log.o ip_pool.o ip_htable.o \
-	ip_lookup.o ip_sync.o ip_scan.o ip_rules.o radix.o
+	ip_lookup.o ip_sync.o ip_scan.o ip_rules.o radix.o log.o
 
-ipf32_OFILES = ${OBJFILES}
-ipf64_OFILES = ${OBJFILES:.o=.64o}
-
-.include <${RULES_MK}>
+ipf: ${OBJFILES}
+	ld -b64 -o $@ $^ -bI:/usr/lib/kernex.exp -bI:/usr/lib/netinet.exp -bI:/usr/lib/sockets.exp -bI:/usr/lib/statcmd.exp -e ipfconfig -l csys -l sys

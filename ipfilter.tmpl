@@ -1,0 +1,35 @@
+Package Name: ipfl
+Package VRMF: 5.3.1.0
+Update: N
+Fileset
+  Fileset Name: ipfl.rte
+  Fileset VRMF: 5.3.1.0
+  Fileset Description: Ipfilter
+  Bosboot required: N
+  Copyright file path: <scriptdir>/ipfilter.rte.copyright
+  License agreement acceptance required: N
+  Include license files in this package: N
+  Requisites:
+  USRFiles
+        /usr/sbin/ipf
+        /usr/sbin/ipfs
+        /usr/sbin/ipfstat
+        /usr/sbin/ipnat
+        /usr/sbin/ippool
+        /usr/sbin/ipscan
+        /usr/sbin/ipmon
+        /usr/sbin/ipsyncm
+        /usr/sbin/ipsyncs
+        /usr/lib/methods/cfg_ipf
+        /usr/lib/drivers/ipf
+  EOUSRFiles
+  USRLIBLPPFiles
+     Pre-installation Script: <scriptdir>/ipfilter.rte.pre_i
+     Post-installation Script: <scriptdir>/ipfilter.rte.post_i
+     Unpost-installation Script: <scriptdir>/ipfilter.rte.unpost_i
+  EOUSRLIBLPPFiles
+  ROOT Part: N
+  ROOTFiles
+  EOROOTFiles
+  Relocatable: Y
+EOFileset

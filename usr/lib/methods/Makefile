@@ -15,19 +15,16 @@
 # disclosure restricted by GSA ADP Schedule Contract with IBM Corp. 
 #  
 # IBM_PROLOG_END_TAG 
-PROGRAMS = cfg_ipf cfg_ipf64
 
-cfg_ipf64_BUILD64 = true
-VPATH = .
-
-cfg_ipf_OFILES = cfg_ipf.o
-cfg_ipf64_OFILES = cfg_ipf.64o
-
-ILIST = ${PROGRAMS}
-IDIR = /usr/lib/methods/
-
-INCFLAGS = -I${MAKETOP}/ipfl/kernext -I${MAKETOP}/ipfl/kernext/netinet
-CFLAGS = -D_ALL_SOURCE -D_KERNEL -D_AIX -D_AIX51 -DAIX
+MAKETOP=../../..
+CC = gcc
+INCFLAGS = -I${MAKETOP}/kernext -I${MAKETOP}/kernext/netinet
+CFLAGS = -D_ALL_SOURCE -D_AIX -D_AIX51 -DAIX -O2 -maix64 ${INCFLAGS}
 LIBS = -lodm -lcfg -lrts
 
-.include<${RULES_MK}>
+cfg_ipf: cfg_ipf.c
+	${CC} ${CFLAGS} -o $@ $^ ${LIBS}
+
+all: cfg_ipf
+clean:
+	rm -f *.o cfg_ipf

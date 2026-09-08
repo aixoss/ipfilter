@@ -34,7 +34,6 @@ static char sccsid[] = "@(#)99  1.3  src/ipfl/usr/lib/methods/cfg_ipf.c, ipflt, 
 #include <sys/uio.h>
 #include <sys/time.h>
 #include <sys/socket.h>
-#include <net/if.h>
 #define _TCP_DEBUG_H_
 #include <netinet/in.h>
 #include <netinet/in_systm.h>
@@ -42,6 +41,7 @@ static char sccsid[] = "@(#)99  1.3  src/ipfl/usr/lib/methods/cfg_ipf.c, ipflt, 
 #include <netinet/ip_icmp.h>
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
+#include <net/if.h>
 
 #include <arpa/inet.h>
 
@@ -53,6 +53,9 @@ static char sccsid[] = "@(#)99  1.3  src/ipfl/usr/lib/methods/cfg_ipf.c, ipflt, 
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <strings.h>
+#include <odmi.h>
+#include <cf.h>
 
 #include "netinet/ip_compat.h"
 #include "netinet/ip_fil.h"
@@ -177,7 +180,7 @@ int checkarg(int argc, char *arg)
 
 	if (!strcmp(arg, "-l") && (argc <= 3))
 		return 1;
-	
+
 	if (!strcmp(arg, "-u") && (argc == 2))
 		return 2;
 
@@ -194,35 +197,36 @@ loadipf(int major, int minor, dev_t devno, char *path)
 	struct cfg_dd ipfcfg;
 	struct cfg_load cfg;
 	char *buffer[1024];
-	char *ipfpath;
 	int i;
 	dev_t lastdev = devno;
 
-	bzero(buffer, sizeof(buffer));
+	bzero(&cfg, sizeof(cfg));
 	if (path != NULL)
-		ipfpath = path;
+		cfg.path = path;
 	else
-		ipfpath = "/usr/lib/drivers/ipf";
-
-#if 0
-	bzero((char *)&cfg, sizeof(cfg));
-	cfg.path = ipfpath;
-	cfg.libpath = "/usr/lib/drivers/";
-	sysconfig(SYS_SINGLELOAD, &cfg, sizeof(cfg));
-	ipfcfg.kmid = cfg.kmid;
-#else
-	ipfcfg.kmid = (mid_t)loadext(ipfpath, TRUE, TRUE);
-#endif
-	if (ipfcfg.kmid == (mid_t)NULL)
-	{
-		perror("loadext");
-		buffer[0] = "execerror";
-		buffer[1] = "ipf";
-		loadquery(1, &buffer[2], sizeof(buffer) - sizeof(*buffer)*2);
-		execvp("/usr/sbin/execerror", buffer);
+		cfg.path = "/usr/lib/drivers/ipf";
+	cfg.kmid = 0;
+	if (sysconfig(SYS_QUERYLOAD, &cfg, sizeof(cfg)) == -1) {
+		perror("sysconfig(SYS_QUERYLOAD)");
 		exit(errno);
 	}
-
+	/* Loac only if not already loaded */
+	if (cfg.kmid == 0) {
+		ipfcfg.kmid = loadext(cfg.path, TRUE, TRUE);
+		if (ipfcfg.kmid == 0) {
+			perror("loadext");
+			buffer[0] = "execerror";
+			buffer[1] = "ipf";
+			loadquery(1, &buffer[2], sizeof(buffer) - sizeof(*buffer)*2);
+			execvp("/usr/sbin/execerror", buffer);
+			exit(errno);
+		}
+		printf("New Kernel module ID: %u\n", ipfcfg.kmid);
+	} else {
+		ipfcfg.kmid = cfg.kmid;
+		printf("Existing Kernel module ID: %u\n", cfg.kmid);
+	}
+	/* Initialize in any case */
 	ipfcfg.devno = devno;
 	ipfcfg.cmd = CFG_INIT;
 	ipfcfg.ddsptr = (caddr_t)NULL;
@@ -257,7 +261,7 @@ unloadipf(int major, int minor, dev_t devno)
 		perror("sysconfig(SYS_QUERYLOAD)");
 		exit(errno);
 	}
-
+	printf("Kernel module ID: %u\n", cfg.kmid);
 	ipfcfg.kmid = cfg.kmid;
 	ipfcfg.devno = devno;
 	ipfcfg.cmd = CFG_TERM;
@@ -270,7 +274,7 @@ unloadipf(int major, int minor, dev_t devno)
 		unlink(ipf_devfiles[i]);
 	}
 
-	if (loadext("ipf", FALSE, FALSE) == NULL) {
+	if (loadext("ipf", FALSE, FALSE) == 0) {
 		perror("loadext");
 		exit(errno);
 	}
@@ -292,7 +296,7 @@ queryipf(int major, int minor, dev_t devno)
 		exit(errno);
 	}
 
-	printf("Kernel module ID: %d\n", cfg.kmid);
+	printf("Kernel module ID: %u\n", cfg.kmid);
 
 	ipfcfg.kmid = cfg.kmid;
 	ipfcfg.devno = devno;

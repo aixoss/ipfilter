@@ -118,9 +118,9 @@ static char *rn_zeros = NULL, *rn_ones = NULL;
 #undef Bcmp
 #define Bcmp(a, b, l) (l == 0 ? 0 : bcmp((caddr_t)(a), (caddr_t)(b), (u_long)l))
 
-static int rn_satisfies_leaf __P((char *, struct radix_node *, int));
-static int rn_lexobetter __P((void *, void *));
-static struct radix_mask *rn_new_radix_mask __P((struct radix_node *,
+int rn_satisfies_leaf __P((char *, struct radix_node *, int));
+int rn_lexobetter __P((void *, void *));
+struct radix_mask *rn_new_radix_mask __P((struct radix_node *,
     struct radix_mask *));
 static int rn_freenode __P((struct radix_node *, void *));
 #if defined(AIX) && !defined(_KERNEL)
@@ -247,7 +247,7 @@ rn_lookup(v_arg, m_arg, head)
 	return x;
 }
 
-static int
+int
 rn_satisfies_leaf(trial, leaf, skip)
 	char *trial;
 	struct radix_node *leaf;
@@ -561,7 +561,7 @@ rn_addmask(n_arg, search, skip)
 	return (x);
 }
 
-static int	/* XXX: arbitrary ordering for non-contiguous masks */
+int	/* XXX: arbitrary ordering for non-contiguous masks */
 rn_lexobetter(m_arg, n_arg)
 	void *m_arg, *n_arg;
 {
@@ -576,7 +576,7 @@ rn_lexobetter(m_arg, n_arg)
 	return 0;
 }
 
-static struct radix_mask *
+struct radix_mask *
 rn_new_radix_mask(tt, next)
 	struct radix_node *tt;
 	struct radix_mask *next;

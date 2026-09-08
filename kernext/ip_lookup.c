@@ -57,6 +57,7 @@ struct file;
 # include "radix_ipf_local.h"
 # define _RADIX_H_
 #endif
+#include <netinet/in.h>
 #include <net/if.h>
 #if defined(__FreeBSD__)
 #  include <sys/cdefs.h>
@@ -68,7 +69,6 @@ struct file;
 #  include <sys/mbuf.h>
 # endif
 #endif
-#include <netinet/in.h>
 
 #include "netinet/ip_compat.h"
 #include "netinet/ip_fil.h"

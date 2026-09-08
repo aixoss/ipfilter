@@ -21,8 +21,11 @@ LIBRARIES = libipf.a
 EXPLIB_TARGETS = export_libipf.a
 EXPDIR = /usr/lib/ipfilter/
 
-INCFLAGS = -I${MAKETOP}/ipfl/kernext -I${MAKETOP}/ipfl/kernext/netinet
-CFLAGS = -D_AIX -D_AIX51 -DAIX -qlanglvl=ansi
+MAKETOP=../..
+INCFLAGS = -I${MAKETOP}/kernext -I${MAKETOP}/kernext/netinet -include strings.h
+CC = gcc -maix64
+AR = /usr/bin/ar
+CFLAGS = -O2 -D_AIX -D_AIX51 -DAIX -D_NOGETDELIM ${INCFLAGS}
 
 OFILES = addicmp.o addipopt.o bcopywrap.o \
      binprint.o buildopts.o checkrev.o count6bits.o count4bits.o \
@@ -45,4 +48,9 @@ OFILES = addicmp.o addipopt.o bcopywrap.o \
      to_interface.o var.o verbose.o v6ionames.o v6optvalue.o
 OFILES64 = ${OFILES:.o=.64o}
 
-.include <${RULES_MK}>
+all:	$(LIBRARIES)
+clean:
+	rm -f *.o
+
+$(LIBRARIES):	$(OFILES)
+	$(AR) -Xany $(ARFLAGS) $@ $(OFILES)

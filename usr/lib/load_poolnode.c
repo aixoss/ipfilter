@@ -69,8 +69,16 @@ ioctlfunc_t iocfunc;
 
 	if (err != 0) {
 		if ((opts & OPT_DONOTHING) == 0) {
-			perror("load_pool:SIOCLOOKUP*NODE");
-			return -1;
+			if (errno == EEXIST) {
+				fprintf(stderr, "Warning load_poolnode : Pool %s already contains %s\n", op.iplo_name, inet_ntoa(pn.ipn_addr.adf_addr.in4));
+				return errno;
+			} else if (errno == ENOENT) {
+				fprintf(stderr, "Warning load_poolnode : Pool %s does not contain %s\n", op.iplo_name, inet_ntoa(pn.ipn_addr.adf_addr.in4));
+				return errno;
+			} else	{
+				perror("load_pool:SIOCLOOKUP*NODE");
+				return -1;
+			}
 		}
 	}
 

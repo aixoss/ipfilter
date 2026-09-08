@@ -1363,7 +1363,10 @@ fr_info_t *fin;
 	if (off != 0) {
 		fi->fi_flx |= FI_FRAG;
 		off &= IP_OFFMASK;
-		if (off != 0) {
+		//check if we have IP_MF bit set in offset, if yes then only,
+		//go to loop and validate it with given condition
+		// else that would be the last fragment and should not be validated
+		if ((off & ~IP_OFFMASK) != 0) {
 			fin->fin_flx |= FI_FRAGBODY;
 			off <<= 3;
 			if ((off + fin->fin_dlen > 65535) || 
