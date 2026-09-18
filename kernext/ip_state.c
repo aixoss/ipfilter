@@ -174,7 +174,7 @@ int	fr_statemax = IPSTATE_MAX,
 	fr_statesize = IPSTATE_SIZE;
 int	fr_state_doflush = 0,
 	fr_state_lock = 0,
-	fr_state_maxbucket = 0,
+	fr_state_maxbucket = IPSTATE_MAXBUCKET,
 	fr_state_maxbucket_reset = 1,
 	fr_state_init = 0;
 ipftq_t	ips_tqtqb[IPF_TCP_NSTATES],

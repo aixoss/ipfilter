@@ -40,6 +40,9 @@ struct ipscan;
 #ifndef	IPSTATE_MAX
 # define	IPSTATE_MAX	4013	/* Maximum number of states held */
 #endif
+#ifndef IPSTATE_MAXBUCKET
+# define        IPSTATE_MAXBUCKET 0
+#endif
 
 #define	PAIRS(s1,d1,s2,d2)	((((s1) == (s2)) && ((d1) == (d2))) ||\
 				 (((s1) == (d2)) && ((d1) == (s2))))

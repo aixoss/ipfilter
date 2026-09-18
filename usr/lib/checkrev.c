@@ -32,6 +32,7 @@ static char sccsid[] = "@(#)03  1.1  src/ipfl/usr/lib/checkrev.c, ipflt, 53ipfl5
 int checkrev(ipfname)
 char *ipfname;
 {
+#ifdef CHECK_IPL_VERSION
 	static int vfd = -1;
 	struct friostat fio, *fiop = &fio;
 	ipfobj_t ipfo;
@@ -57,5 +58,6 @@ char *ipfname;
 	if (strncmp(IPL_VERSION, fio.f_version, sizeof(fio.f_version))) {
 		return -1;
 	}
+#endif
 	return 0;
 }

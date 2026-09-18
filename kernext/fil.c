@@ -1320,7 +1320,7 @@ static INLINE void frpr_ipv4hdr(fin)
 fr_info_t *fin;
 {
 	u_short optmsk = 0, secmsk = 0, auth = 0;
-	int hlen, ol, mv, p, i;
+	int hlen, ol, mv, p, i, morefrag;
 	const struct optlist *op;
 	u_char *s, opt;
 	u_short off;
@@ -1362,12 +1362,13 @@ fr_info_t *fin;
 	off &= IP_MF|IP_OFFMASK;
 	if (off != 0) {
 		fi->fi_flx |= FI_FRAG;
+		morefrag = off & IP_MF;		/* save MF before it's masked away */
 		off &= IP_OFFMASK;
 		if (off != 0) {
 			fin->fin_flx |= FI_FRAGBODY;
 			off <<= 3;
 			if ((off + fin->fin_dlen > 65535) || 
-			    (fin->fin_dlen == 0) || (fin->fin_dlen & 7)) {
+			    (fin->fin_dlen == 0) || (morefrag && (fin->fin_dlen & 7))) {
 				/* 
 				 * The length of the packet, starting at its
 				 * offset cannot exceed 65535 (0xffff) as the 
@@ -3391,7 +3392,7 @@ minor_t unit;
 int *nfreedp;
 frentry_t **listp;
 {
-	int freed = 0;
+	int freed = 0, i;
 	frentry_t *fp;
 
 	while ((fp = *listp) != NULL) {
@@ -3402,7 +3403,8 @@ frentry_t **listp;
 		}
 		*listp = fp->fr_next;
 		if (fp->fr_grp != NULL) {
-			(void) frflushlist(set, unit, nfreedp, fp->fr_grp);
+			i = frflushlist(set, unit, nfreedp, fp->fr_grp);
+			fp->fr_ref -= i;
 		}
 
 		if (fp->fr_grhead != NULL) {
@@ -4438,6 +4440,8 @@ caddr_t data;
 			    (f->fr_isc != (struct ipscan *)-1))
 				ipsc_detachfr(f);
 #endif
+			if ((fg != NULL) && (fg->fg_head != NULL))
+				fg->fg_head->fr_ref--;
 			if (unit == IPL_LOGAUTH) {
 				error = fr_preauthcmd(req, f, ftail);
 				goto done;
@@ -4476,6 +4480,8 @@ caddr_t data;
 			} else
 				f = fp;
 			if (f != NULL) {
+				if (fg != NULL && fg->fg_head != NULL)
+					fg->fg_head->fr_ref++;
 				if (fp != f)
 					bcopy((char *)fp, (char *)f,
 					      sizeof(*f));
