@@ -1,24 +1,27 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/ip_lookup.c 1.1                             */
+/* 71ipfl71c src/ipfl/kernext/ip_lookup.c 1.1                             */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006                   */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)06  1.1  src/ipfl/kernext/ip_lookup.c, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/8/06 07:26:39";
+static char sccsid[] = "@(#)06  1.1  src/ipfl/kernext/ip_lookup.c, ipflt, 71ipfl71c 5/8/06 07:26:39";
 /*
  * Copyright (C) 2002-2003 by Darren Reed.
  *
  * See the IPFILTER.LICENCE file for details on licencing.
+ */
+/*
+ * Copyright 2026 Cisco Systems, Inc. All Rights Reserved.
  */
 #if defined(KERNEL) || defined(_KERNEL)
 # undef KERNEL
@@ -57,6 +60,7 @@ struct file;
 # include "radix_ipf_local.h"
 # define _RADIX_H_
 #endif
+#include <netinet/in.h>
 #include <net/if.h>
 #if defined(__FreeBSD__)
 #  include <sys/cdefs.h>
@@ -68,7 +72,6 @@ struct file;
 #  include <sys/mbuf.h>
 # endif
 #endif
-#include <netinet/in.h>
 
 #include "netinet/ip_compat.h"
 #include "netinet/ip_fil.h"
@@ -105,8 +108,6 @@ int ip_lookup_init()
 	if (ip_pool_init() == -1)
 		return -1;
 
-	RWLOCK_INIT(&ip_poolrw, "ip pool rwlock");
-
 	ip_lookup_inited = 1;
 
 	return 0;
@@ -128,7 +129,6 @@ void ip_lookup_unload()
 	fr_htable_unload();
 
 	if (ip_lookup_inited == 1) {
-		RW_DESTROY(&ip_poolrw);
 		ip_lookup_inited = 0;
 	}
 }
@@ -152,6 +152,7 @@ ioctlcmd_t cmd;
 int mode;
 {
 	int err;
+	int _cpu_idx_pool = IPF_PERCPU_IDX_INIT;
 	SPL_INT(s);
 
 	mode = mode;	/* LINT */
@@ -162,41 +163,41 @@ int mode;
 	{
 	case SIOCLOOKUPADDNODE :
 	case SIOCLOOKUPADDNODEW :
-		WRITE_ENTER(&ip_poolrw);
+		WRITE_ENTER_PERCPU(&ip_pool_pcpu, _cpu_idx_pool);
 		err = iplookup_addnode(data);
-		RWLOCK_EXIT(&ip_poolrw);
+		RWLOCK_EXIT_PERCPU_IOCTL(&ip_pool_pcpu, _cpu_idx_pool);
 		break;
 
 	case SIOCLOOKUPDELNODE :
 	case SIOCLOOKUPDELNODEW :
-		WRITE_ENTER(&ip_poolrw);
+		WRITE_ENTER_PERCPU(&ip_pool_pcpu, _cpu_idx_pool);
 		err = iplookup_delnode(data);
-		RWLOCK_EXIT(&ip_poolrw);
+		RWLOCK_EXIT_PERCPU_IOCTL(&ip_pool_pcpu, _cpu_idx_pool);
 		break;
 
 	case SIOCLOOKUPADDTABLE :
-		WRITE_ENTER(&ip_poolrw);
+		WRITE_ENTER_PERCPU(&ip_pool_pcpu, _cpu_idx_pool);
 		err = iplookup_addtable(data);
-		RWLOCK_EXIT(&ip_poolrw);
+		RWLOCK_EXIT_PERCPU_IOCTL(&ip_pool_pcpu, _cpu_idx_pool);
 		break;
 
 	case SIOCLOOKUPDELTABLE :
-		WRITE_ENTER(&ip_poolrw);
+		WRITE_ENTER_PERCPU(&ip_pool_pcpu, _cpu_idx_pool);
 		err = iplookup_deltable(data);
-		RWLOCK_EXIT(&ip_poolrw);
+		RWLOCK_EXIT_PERCPU_IOCTL(&ip_pool_pcpu, _cpu_idx_pool);
 		break;
 
 	case SIOCLOOKUPSTAT :
 	case SIOCLOOKUPSTATW :
-		WRITE_ENTER(&ip_poolrw);
+		WRITE_ENTER_PERCPU(&ip_pool_pcpu, _cpu_idx_pool);
 		err = iplookup_stats(data);
-		RWLOCK_EXIT(&ip_poolrw);
+		RWLOCK_EXIT_PERCPU_IOCTL(&ip_pool_pcpu, _cpu_idx_pool);
 		break;
 
 	case SIOCLOOKUPFLUSH :
-		WRITE_ENTER(&ip_poolrw);
+		WRITE_ENTER_PERCPU(&ip_pool_pcpu, _cpu_idx_pool);
 		err = iplookup_flush(data);
-		RWLOCK_EXIT(&ip_poolrw);
+		RWLOCK_EXIT_PERCPU_IOCTL(&ip_pool_pcpu, _cpu_idx_pool);
 		break;
 
 	default :
@@ -500,8 +501,22 @@ caddr_t data;
 	num = 0;
 
 	if (type == IPLT_POOL || type == IPLT_ALL) {
+		int pool_ret;
 		err = 0;
-		num = ip_pool_flush(&flush);
+		pool_ret = ip_pool_flush(&flush);
+		if (pool_ret < 0) {
+			/*
+			 * Partial flush: some pools could not be destroyed
+			 * (e.g. still referenced by a filter rule).  Report
+			 * EBUSY so the caller knows not all pools were freed.
+			 * pool_ret is -err_count; negate to get the count of
+			 * pools that were actually destroyed for iplf_count.
+			 */
+			err = EBUSY;
+			num = 0;
+		} else {
+			num = pool_ret;
+		}
 	}
 
 	if (type == IPLT_HASH  || type == IPLT_ALL) {
@@ -521,10 +536,12 @@ void ip_lookup_deref(type, ptr)
 int type;
 void *ptr;
 {
+	int _cpu_idx_pool = IPF_PERCPU_IDX_INIT;
+
 	if (ptr == NULL)
 		return;
 
-	WRITE_ENTER(&ip_poolrw);
+	WRITE_ENTER_PERCPU(&ip_pool_pcpu, _cpu_idx_pool);
 	switch (type)
 	{
 	case IPLT_POOL :
@@ -535,7 +552,7 @@ void *ptr;
 		fr_derefhtable(ptr);
 		break;
 	}
-	RWLOCK_EXIT(&ip_poolrw);
+	RWLOCK_EXIT_PERCPU(&ip_pool_pcpu, _cpu_idx_pool);
 }
 
 

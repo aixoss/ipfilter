@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/netinet/ip_compat.h 1.6                     */
+/* 71ipfl71c src/ipfl/kernext/netinet/ip_compat.h 1.7                     */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* COPYRIGHT International Business Machines Corp. 2006,2015              */
+/* COPYRIGHT International Business Machines Corp. 2006,2025              */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-/* @(#)20  1.6  src/ipfl/kernext/netinet/ip_compat.h, ipflt, 53ipfl53H, 1537A_53ipfl53H 3/28/15 05:50:03 */
+/* @(#)20  1.6  src/ipfl/kernext/netinet/ip_compat.h, ipflt, 71ipfl71c 3/28/15 05:50:03 */
 /*
  * Copyright (C) 1993-2001, 2003 by Darren Reed.
  *
@@ -22,6 +22,9 @@
  *
  * @(#)ip_compat.h	1.8 1/14/96
  * $Id: ip_compat.h,v 2.142.2.36 2006/03/26 05:50:29 darrenr Exp $
+ */
+/*
+ * Copyright 2018 Illumio, Inc. All Rights Reserved.
  */
 
 #ifndef	__IP_COMPAT_H__
@@ -1241,60 +1244,97 @@ typedef u_int32_t 	u_32_t;
 # ifdef _KERNEL
 #  define rw_read_locked(x)		0
 #  include <net/net_globals.h>
+#    undef wakeup
 #  include <net/net_malloc.h>
+#  include <sys/lock_def.h>
+#  include <sys/lockname.h>
 # undef kmutex_t
  typedef struct {
 	Simple_lock l;
 	int pl;
  } kmutex_t;
+/*
+ * IPF lock family number for drw (disabled read/write) locks.
+ * Uses a number in the range 3000-3015, not claimed by any other
+ * subsystem in sys/lockname.h.
+ */
+#  define	IPF_RWLOCK_FAMILY	3000
 #  define	KMUTEX_T		kmutex_t
-#  define	KRWLOCK_T		kmutex_t
+/*
+ * ipfmutex_t uses disable_lock/unlock_enable (exclusive spinlock + IPL save).
+ * This is correct for short critical sections called at interrupt level.
+ */
+#  define	KRWLOCK_T		DRW_lock
 #  define	USE_MUTEXES		1
 #  define	USE_SPL			1
-#if 1
 #  define	MUTEX_ENTER(x)		(x)->ipf_lk.pl = disable_lock(PL_IMP,&(x)->ipf_lk.l)
-#  define       MUTEX_INIT(x, y)        lock_alloc(&(x)->ipf_lk.l, \
-                                        LOCK_ALLOC_PIN, \
-                                             (u_short)1, 0); \
-                                       simple_lock_init(&(x)->ipf_lk.l)
-#  define     MUTEX_DESTROY(x)        lock_free(&(x)->ipf_lk.l)
-#  define     MUTEX_EXIT(x)           unlock_enable((x)->ipf_lk.pl, &(x)->ipf_lk.l)
-#  define     MUTEX_NUKE(x)           bzero(&(x)->ipf_lk.l, sizeof((x)->ipf_lk.l))
-#  define     READ_ENTER(x)           MUTEX_ENTER(x)
-#  define     WRITE_ENTER(x)          MUTEX_ENTER(x)
-#  define     MUTEX_DOWNGRADE(x)      ;
-#  define     RWLOCK_INIT(x, y)       MUTEX_INIT(x, y)
-#  define     RWLOCK_EXIT(x)          MUTEX_EXIT(x)
-#  define     RW_DESTROY(x)           MUTEX_DESTROY(x)
-#else
-#  define       READ_ENTER(x)           ;
-#  define       WRITE_ENTER(x)          ;
-#  define       MUTEX_DOWNGRADE(x)      ;
-#  define       RWLOCK_INIT(x, y)       ;
-#  define       RWLOCK_EXIT(x)          ;
-#  define       RW_DESTROY(x)           ;
-#  define       MUTEX_ENTER(x)          ;
-#  define       MUTEX_INIT(x, y)        ;
-#  define       MUTEX_DESTROY(x)        ;
-#  define       MUTEX_EXIT(x)           ;
-#  define       MUTEX_NUKE(x)           ;
-#endif
-#   define	ATOMIC_INC64(x)		{ MUTEX_ENTER(&ipf_rw); (x)++; \
-					  MUTEX_EXIT(&ipf_rw); }
-#   define	ATOMIC_DEC64(x)		{ MUTEX_ENTER(&ipf_rw); (x)--; \
-					  MUTEX_EXIT(&ipf_rw); }
-#   define	ATOMIC_INC32(x)		{ MUTEX_ENTER(&ipf_rw); (x)++; \
-					  MUTEX_EXIT(&ipf_rw); }
-#   define	ATOMIC_DEC32(x)		{ MUTEX_ENTER(&ipf_rw); (x)--; \
-					  MUTEX_EXIT(&ipf_rw); }
-#   define	ATOMIC_INCL(x)		{ MUTEX_ENTER(&ipf_rw); (x)++; \
-					  MUTEX_EXIT(&ipf_rw); }
-#   define	ATOMIC_DECL(x)		{ MUTEX_ENTER(&ipf_rw); (x)--; \
-					  MUTEX_EXIT(&ipf_rw); }
-#   define	ATOMIC_INC(x)		{ MUTEX_ENTER(&ipf_rw); (x)++; \
-					  MUTEX_EXIT(&ipf_rw); }
-#   define	ATOMIC_DEC(x)		{ MUTEX_ENTER(&ipf_rw); (x)--; \
-					  MUTEX_EXIT(&ipf_rw); }
+#  define	MUTEX_INIT(x, y)	lock_alloc(&(x)->ipf_lk.l, \
+					    LOCK_ALLOC_PIN, (u_short)1, 0); \
+					simple_lock_init(&(x)->ipf_lk.l)
+#  define	MUTEX_DESTROY(x)	lock_free(&(x)->ipf_lk.l)
+#  define	MUTEX_EXIT(x)		unlock_enable((x)->ipf_lk.pl, &(x)->ipf_lk.l)
+#  define	MUTEX_NUKE(x)		bzero(&(x)->ipf_lk.l, sizeof((x)->ipf_lk.l))
+/*
+ * ipfrwlock_t uses the AIX disabled-read/write (drw) lock pattern from
+ * net/if.h (IFADDRLIST_READ_LOCK / IFADDRLIST_WRITE_LOCK):
+ *
+ *   i_disable(PL_IMP)   -- raise IPL, saving old level into ipf_isr
+ *   drw_lock_read()     -- shared acquisition  (READ_ENTER)
+ *   drw_lock_write()    -- exclusive acquisition (WRITE_ENTER)
+ *   drw_lock_done()     -- release (either mode)
+ *   i_enable(ipf_isr)   -- restore saved IPL       (RWLOCK_EXIT)
+ *
+ * drw_lock requires CSA->intpri < INTBASE, which is satisfied because
+ * i_disable() raises the hardware interrupt mask but does NOT elevate
+ * intpri past INTBASE -- the drw_lock assert checks intpri, not ipri.
+ * The saved IPL is stored in ipf_isr (ipf_lkun_s.ipf_sr) inside the
+ * ipfrwlock_t struct so that RWLOCK_EXIT needs only the lock pointer.
+ *
+ * MUTEX_DOWNGRADE converts a write lock to a read lock in place; the
+ * saved IPL in ipf_isr is left unchanged (still need interrupts disabled
+ * until the read lock is eventually released by RWLOCK_EXIT).
+ */
+#  define	READ_ENTER(x)		do { \
+					    (x)->ipf_isr = i_disable(PL_IMP); \
+					    drw_lock_read(&(x)->ipf_lk); \
+					} while (0)
+#  define	WRITE_ENTER(x)		do { \
+					    (x)->ipf_isr = i_disable(PL_IMP); \
+					    drw_lock_write(&(x)->ipf_lk); \
+					} while (0)
+#  define	MUTEX_DOWNGRADE(x)	drw_lock_write_to_read(&(x)->ipf_lk)
+#  define	RWLOCK_INIT(x, y)	lock_alloc(&(x)->ipf_lk, LOCK_ALLOC_PIN, \
+					    IPF_RWLOCK_FAMILY, 0); \
+					drw_lock_init(&(x)->ipf_lk)
+#  define	RWLOCK_EXIT(x)		do { \
+					    drw_lock_done(&(x)->ipf_lk); \
+					    i_enable((x)->ipf_isr); \
+					} while (0)
+#  define	RW_DESTROY(x)		drw_lock_free(&(x)->ipf_lk)
+
+/*
+ * All IPF counter fields are u_long (64-bit on the 64-bit kernel).
+ * Use fetch_and_addlp() -- a single atomic load-and-add instruction --
+ * instead of acquiring the global ipf_rw spinlock for every increment.
+ * This eliminates ~1.6M exclusive disable_lock calls/second from the
+ * stats path and the associated slock spin contention.
+ */
+#   define	ATOMIC_INC64(x)		fetch_and_addlp((atomic_l)&(x),  1)
+#   define	ATOMIC_DEC64(x)		fetch_and_addlp((atomic_l)&(x), -1)
+#   define	ATOMIC_INC32(x)		fetch_and_add((atomic_p)&(x),  1)
+#   define	ATOMIC_DEC32(x)		fetch_and_add((atomic_p)&(x), -1)
+#   define	ATOMIC_INCL(x)		fetch_and_addlp((atomic_l)&(x),  1)
+#   define	ATOMIC_DECL(x)		fetch_and_addlp((atomic_l)&(x), -1)
+#   define	ATOMIC_INC(x)		fetch_and_addlp((atomic_l)&(x),  1)
+#   define	ATOMIC_DEC(x)		fetch_and_addlp((atomic_l)&(x), -1)
+/*
+ * fetch_and_add returns the OLD value on AIX (before the add).
+ * ATOMIC_DEC32_RET(x) decrements x and returns the old value; caller checks
+ * == 1 to detect the transition to zero (last ref).
+ * ATOMIC_ADD64(x, v) adds v to a 64-bit counter atomically.
+ */
+#   define	ATOMIC_DEC32_RET(x)	fetch_and_add((atomic_p)&(x), -1)
+#   define	ATOMIC_ADD64(x, v)	fetch_and_addlp((atomic_l)&(x), (long)(v))
 #if 0
 #  define	SPL_NET(x)		x = splnet()
 #  define	SPL_IMP(x)		x = splimp()
@@ -1322,9 +1362,9 @@ extern void* getifp __P((char *, int));
 #  define	SLEEPWAKEONSIG(id, n)	sleepx((id), PZERO+1, (SWAKEONSIG | PCATCH))
 #  define	WAKEUP(id,x)	wakeup(id)
 #else
-#  define       SLEEP(x, s)     sleepx(x##_aix, PZERO+1, 0)
+#  define       SLEEP(x, s)     sleepx(x##_aix, PZERO+1, PCATCH|SWAKEONSIG)
 #  define	SLEEPWAKEONSIG(x, s)     sleepx(x##_aix, PZERO+1, (SWAKEONSIG | PCATCH))
-#  define       WAKEUP(x, y)    e_wakeup(x##_aix + y)
+#  define       WAKEUP(x, y)    wakeup(x##_aix + y)
 #endif
 #  define	POLLWAKEUP(x)	;
 #  define	COPYIN(a,b,c)	copyin((caddr_t)(a), (caddr_t)(b), (c))
@@ -1459,6 +1499,543 @@ typedef union {
 #define	ipf_isr		ipf_lkun_s.ipf_sr
 #define	ipf_isw		ipf_lkun_s.ipf_sw
 #define	ipf_magic	ipf_lkun_s.ipf_magic
+
+/*
+ * Per-CPU read/write lock for IPFilter hot-path read contention mitigation.
+ *
+ * READ_ENTER_PERCPU locks only the current CPU's DRW lock;
+ * WRITE_ENTER_PERCPU locks all per-CPU DRW locks sequentially.
+ *
+ * The read path is O(1) with no shared CAS reader-count, eliminating
+ * the cacheline contention that causes >50% TPS degradation under high CPU
+ * count.  Write operations (rule add/delete, flush) lock all per-CPU locks
+ * sequentially and so are slower -- acceptable because writes are rare.
+ *
+ * Memory: IPF_MAX_CPUS DRW_lock pointers per protected lock (~2 KB per lock).
+ * Each per-CPU lock is allocated from pinned memory on init and freed on term.
+ *
+ * CPU index tracking: the caller declares
+ *   int ipf_cpu_idx = IPF_PERCPU_IDX_INIT;
+ * before any acquire call.  READ_ENTER_PERCPU stores the CPU slot used so
+ * that RWLOCK_EXIT_PERCPU can release exactly that slot.  WRITE_ENTER_PERCPU
+ * uses IPF_WRITE_SENTINEL to distinguish write mode.
+ */
+#if defined(_AIX51)
+
+# define IPF_MAX_CPUS          256
+# define IPF_PERCPU_IDX_INIT   (-1)
+# define IPF_WRITE_SENTINEL    (IPF_MAX_CPUS - 1)  /* write-lock sentinel */
+
+
+/*
+ * mycpu() returns the current logical CPU number as cpu_t and is declared
+ * in sys/processor.h.  Modulo IPF_MAX_CPUS maps any CPU number into a valid
+ * lock-array slot, exactly as ipsec/lock.h does:
+ *   #define CPU_INDEX (mycpu() % IPSEC_MAX_CPUS)
+ * This is safer than using CPUID / my_ppda()->cpuid directly because:
+ *  - mycpu() is available in all IPFilter translation units via processor.h
+ *    without requiring _POWER_MP or pulling in the heavyweight ppda chain.
+ *  - The modulo ensures correctness even if the kernel reports a CPU number
+ *    >= IPF_MAX_CPUS (e.g. firmware CPU IDs are not always dense from 0).
+ *
+ * Member names ipfc_lname / ipfc_isr are distinct from the #define macros
+ * ipf_lname (ipf_lkun_s.ipf_lname) and ipf_isr (ipf_lkun_s.ipf_sr) that
+ * are defined for ipfrwlock_t above; using the original names inside a
+ * struct definition would cause the preprocessor to expand them into dotted
+ * expressions, producing a syntax error.
+ *
+ * Sentinel values for _cpu_idx (matching ipsec/lock.h convention):
+ *   IPF_PERCPU_IDX_INIT  (-1)          : no lock held
+ *   0 .. IPF_MAX_CPUS-1                : per-CPU read lock held on that slot
+ *   IPF_MAX_CPUS-1  (write sentinel)   : all slots write-locked
+ * Note: WRITE_ENTER_PERCPU sets _cpu_idx = IPF_MAX_CPUS-1 (not IPF_MAX_CPUS)
+ * so RWLOCK_EXIT_PERCPU can distinguish write mode without a separate value
+ * that is out of the valid slot range.
+ *
+ * ipfc_isr[IPF_MAX_CPUS] -- per-CPU saved interrupt priority level.
+ *
+ * The original single ipfc_isr caused a race: READ_ENTER_PERCPU (called from
+ * fr_slowtimer at INTTIMER priority) and WRITE_ENTER_PERCPU (called from
+ * ioctl / frrequest at INTBASE) both store their saved IPL into the one field
+ * concurrently.  Whichever stores last wins, so RWLOCK_EXIT_PERCPU restores
+ * the wrong IPL -- observed as intpri=5 (INTTIMER) after ioctl returns, which
+ * triggers the specfs_intsdisabled assert.
+ *
+ * Fix: each CPU saves i_disable() into its own ipfc_isr[cpu_slot]:
+ *
+ *   READ path  (slot = IPF_CPU_INDEX):
+ *     ipfc_isr[slot] = i_disable(PL_IMP)   <- only writes slot N
+ *     RWLOCK_EXIT_PERCPU: i_enable(ipfc_isr[_held])  (_held == slot N)
+ *
+ *   WRITE path (slot = IPF_WRITE_SENTINEL, actual CPU = IPF_CPU_INDEX):
+ *     ipfc_isr[IPF_CPU_INDEX] = i_disable(PL_IMP)  <- only writes the ioctl CPU's slot
+ *     RWLOCK_EXIT_PERCPU: i_enable(ipfc_isr[IPF_CPU_INDEX])
+ *
+ * Because i_disable(PL_IMP) blocks the timer interrupt, the scheduler cannot
+ * run and IPF_CPU_INDEX at release time is guaranteed to be the same CPU as
+ * at acquire time, so the correct slot is always read back.
+ *
+ * Two concurrent callers on different CPUs (e.g. fr_slowtimer on CPU N and
+ * frrequest on CPU 27) write to different array slots and never interfere.
+ * Memory cost: IPF_MAX_CPUS * sizeof(int) = 1 KB extra per lock instance
+ * (6 instances = 6 KB total -- negligible).
+ */
+#  ifdef _KERNEL
+#   include <sys/processor.h>
+#  endif
+#  define IPF_CPU_INDEX		((int)(mycpu() % IPF_MAX_CPUS))
+
+/*
+ * Per-CPU lock structure -- kernel only (DRW_lock is not available in
+ * userland headers).  Userland sees only the typedef so that ip_fil.h
+ * extern declarations compile; the actual lock fields are never accessed
+ * outside the kernel.
+ */
+#  ifdef _KERNEL
+typedef struct ipfrwlock_percpu {
+	DRW_lock	*ipf_cpu_lk[IPF_MAX_CPUS];
+	char		*ipfc_lname;		 /* avoids collision with #define ipf_lname */
+	int		 ipfc_isr[IPF_MAX_CPUS]; /* per-CPU saved IPL -- one slot per CPU   */
+#  ifdef IPFDEBUG
+	void		*ipfc_caller[IPF_MAX_CPUS];  /* getcaller()  -- direct caller         */
+	void		*ipfc_caller2[IPF_MAX_CPUS]; /* getcaller2() -- caller's caller        */
+	void		*ipfc_caller3[IPF_MAX_CPUS]; /* getcaller3() -- caller's caller's caller */
+	tid_t		 ipfc_tid[IPF_MAX_CPUS];     /* thread_self() at read-lock acquire    */
+#  endif /* IPFDEBUG */
+} ipfrwlock_percpu_t;
+#  else  /* !_KERNEL -- userland stub: opaque type, same size not required */
+typedef struct ipfrwlock_percpu {
+	void		*ipf_cpu_lk[IPF_MAX_CPUS];
+	char		*ipfc_lname;
+	int		 ipfc_isr[IPF_MAX_CPUS];
+} ipfrwlock_percpu_t;
+#  endif /* _KERNEL */
+
+/*
+ * Initialise all per-CPU DRW locks (CFG_INIT path).
+ */
+#  define RWLOCK_INIT_PERCPU(x, y)					\
+	do {								\
+		int _i;							\
+		(x)->ipfc_lname = (y);					\
+		bzero((x)->ipfc_isr, sizeof((x)->ipfc_isr));		\
+		for (_i = 0; _i < IPF_MAX_CPUS; _i++) {		\
+			(x)->ipf_cpu_lk[_i] =				\
+			    (DRW_lock *)xmalloc(sizeof(DRW_lock),	\
+						2, pinned_heap);	\
+			if ((x)->ipf_cpu_lk[_i] != NULL) {		\
+				lock_alloc((x)->ipf_cpu_lk[_i],		\
+					   LOCK_ALLOC_PIN,		\
+					   IPF_RWLOCK_FAMILY, _i);	\
+				drw_lock_init((x)->ipf_cpu_lk[_i]);	\
+			}						\
+		}							\
+	} while (0)
+
+/*
+ * Free all per-CPU DRW locks (CFG_TERM path).
+ */
+#  define RW_DESTROY_PERCPU(x)						\
+	do {								\
+		int _i;							\
+		for (_i = 0; _i < IPF_MAX_CPUS; _i++) {		\
+			if ((x)->ipf_cpu_lk[_i] != NULL) {		\
+				drw_lock_free((x)->ipf_cpu_lk[_i]);	\
+				xmfree((x)->ipf_cpu_lk[_i],		\
+				       pinned_heap);			\
+				(x)->ipf_cpu_lk[_i] = NULL;		\
+			}						\
+		}							\
+	} while (0)
+
+/*
+ * Read-acquire: raise IPL, lock only this CPU's slot.
+ * Uses mycpu()%IPF_MAX_CPUS so CPU numbers > IPF_MAX_CPUS are handled
+ * correctly and no ppda/inline.h machinery is required.
+ *
+ * ORDERING: i_disable(PL_IMP) MUST be called before IPF_CPU_INDEX (mycpu()).
+ * Between a bare mycpu() read and the subsequent i_disable(), the thread is
+ * still at INTBASE and the scheduler is free to dispatch it to a different
+ * CPU.  If that happens, _cpu_idx holds the old CPU number but i_disable()
+ * runs on the new CPU, so ipfc_isr[old_cpu] receives the new CPU's saved IPL
+ * and RWLOCK_EXIT_PERCPU later calls i_enable() with the wrong value --
+ * leaving the ioctl thread at PL_IMP (intpri=3) instead of INTBASE (intpri=11).
+ * Once i_disable(PL_IMP) has raised the IPL, drw_lock_read() will not call
+ * e_block_thread() and the thread cannot migrate, so mycpu() is stable.
+ */
+#  define READ_ENTER_PERCPU(x, _cpu_idx)				\
+	do {								\
+		int _isr = i_disable(PL_IMP);				\
+		(_cpu_idx) = IPF_CPU_INDEX;				\
+		(x)->ipfc_isr[(_cpu_idx)] = _isr;			\
+		if ((x)->ipf_cpu_lk[(_cpu_idx)] != NULL)		\
+			drw_lock_read((x)->ipf_cpu_lk[(_cpu_idx)]);	\
+	} while (0)
+
+/*
+ * Write-acquire: raise IPL once, then lock all per-CPU slots.
+ * Sets _cpu_idx = IPF_WRITE_SENTINEL (IPF_MAX_CPUS-1) to signal write mode.
+ * Acquires slots 0..IPF_MAX_CPUS-1 in ascending order (release in reverse).
+ * The saved IPL is stored in ipfc_isr[IPF_CPU_INDEX] (the ioctl thread's own
+ * CPU slot) so it never aliases the read-path save of any other CPU.
+ *
+ * ORDERING: same constraint as READ_ENTER_PERCPU -- i_disable(PL_IMP) must
+ * run before mycpu() so that _wcpu is read while the CPU is pinned.
+ */
+#  define WRITE_ENTER_PERCPU(x, _cpu_idx)				\
+	do {								\
+		int _i;							\
+		int _wisr = i_disable(PL_IMP);				\
+		int _wcpu = IPF_CPU_INDEX;				\
+		(x)->ipfc_isr[_wcpu] = _wisr;				\
+		(_cpu_idx) = IPF_WRITE_SENTINEL;			\
+		for (_i = 0; _i < IPF_MAX_CPUS; _i++)			\
+			if ((x)->ipf_cpu_lk[_i] != NULL)		\
+				drw_lock_write((x)->ipf_cpu_lk[_i]);	\
+	} while (0)
+
+/*
+ * Release.
+ * If _cpu_idx == IPF_WRITE_SENTINEL: write mode -- unlock all slots in
+ * reverse order.  But a valid read slot can also equal IPF_MAX_CPUS-1
+ * (if the system has exactly IPF_MAX_CPUS CPUs).  To disambiguate we
+ * rely on the fact that WRITE_ENTER_PERCPU always locks slot[IPF_MAX_CPUS-1]
+ * as a write lock, so unlocking it unconditionally is correct either way
+ * (drw_lock_done releases regardless of read/write mode).  The loop
+ * releases all slots on the write path; on the read path only one slot
+ * was acquired.
+ *
+ * Write path (_cpu_idx == IPF_WRITE_SENTINEL): _cpu_idx starts at
+ * IPF_MAX_CPUS-1 and we loop down to 0, releasing each held slot.
+ * Read path (_cpu_idx in 0..IPF_MAX_CPUS-2): release exactly that slot.
+ * Special case _cpu_idx == IPF_MAX_CPUS-1 could be either; treating it
+ * as write is safe because on a system with IPF_MAX_CPUS CPUs the last
+ * CPU's read lock was acquired as slot IPF_MAX_CPUS-1, and drw_lock_done
+ * on a slot that was read-locked is the same as on a write-locked slot.
+ */
+/*
+ * RWLOCK_EXIT_PERCPU: release and reset _cpu_idx to IPF_PERCPU_IDX_INIT.
+ * Matching ipsec/lock.h: IPSEC_CPU_READ_UNLOCK and IPSEC_CPU_WRITE_UNLOCK
+ * both reset *_p_cpu_index = CPU_INDEX_INIT after the release.  Resetting
+ * prevents accidental double-release if the calling code path is reused.
+ *
+ * Write path (_cpu_idx == IPF_WRITE_SENTINEL): release all slots 255..0.
+ * Read path  (_cpu_idx in 0..IPF_MAX_CPUS-2): release exactly that slot.
+ * No-op path (_cpu_idx == IPF_PERCPU_IDX_INIT): already unlocked, skip.
+ */
+/*
+ * RWLOCK_EXIT_PERCPU -- generic release.  Safe on both the interrupt path
+ * (saved ISR is legitimately PL_IMP or INTTIMER) and the ioctl path.
+ * No IPL sanity check -- use RWLOCK_EXIT_PERCPU_IOCTL at ioctl call sites
+ * that must arrive and leave at INTBASE.
+ */
+#  define RWLOCK_EXIT_PERCPU(x, _cpu_idx)				\
+	do {								\
+		int _held = (_cpu_idx);					\
+		(_cpu_idx) = IPF_PERCPU_IDX_INIT;			\
+		if (_held == IPF_WRITE_SENTINEL) {			\
+			int _i;						\
+			int _wcpu_exit = IPF_CPU_INDEX;			\
+			for (_i = IPF_MAX_CPUS - 1; _i >= 0; _i--)	\
+				if ((x)->ipf_cpu_lk[_i] != NULL)	\
+					drw_lock_done((x)->ipf_cpu_lk[_i]);\
+			/* Restore the IPL saved by WRITE_ENTER_PERCPU  \
+			 * into this CPU's own slot.  i_disable() blocks \
+			 * the timer interrupt so the scheduler cannot   \
+			 * run -- IPF_CPU_INDEX is stable until i_enable. */\
+			i_enable((x)->ipfc_isr[_wcpu_exit]);		\
+		} else if (_held >= 0 && _held < IPF_MAX_CPUS) {	\
+			if ((x)->ipf_cpu_lk[_held] != NULL)		\
+				drw_lock_done((x)->ipf_cpu_lk[_held]);	\
+			/* _held is exactly the slot READ_ENTER_PERCPU  \
+			 * used, so ipfc_isr[_held] holds this CPU's    \
+			 * saved IPL -- no aliasing with other CPUs.     */\
+			i_enable((x)->ipfc_isr[_held]);			\
+		}							\
+		/* _held == IPF_PERCPU_IDX_INIT: no lock held, no-op */	\
+	} while (0)
+
+/*
+ * RWLOCK_EXIT_PERCPU_IOCTL -- ioctl-path write-lock release.
+ *
+ * Identical to RWLOCK_EXIT_PERCPU but additionally asserts, under
+ * IPFDEBUG, that ipfc_isr[cpu] == INTBASE *before* the drw_lock_done
+ * loop runs (i.e. while the lock is still fully held).
+ *
+ * Use this macro exclusively at WRITE_ENTER_PERCPU / RWLOCK_EXIT pairs
+ * that are known to run only on the ioctl/administrative path at INTBASE:
+ *   frrequest, frflush, frsync, fr_forgetifp, ipldetach quiesce.
+ *
+ * Do NOT use at packet-path or timer-path release sites -- those enter at
+ * PL_IMP or INTTIMER so a saved ISR of 3 or 5 is correct, not a bug.
+ *
+ * What the pre-release check tells you when it fires:
+ *   ipfc_isr[cpu] != INTBASE before any drw_lock_done ran
+ *   -> the isr slot was already wrong at WRITE_ENTER_PERCPU time, or
+ *     something inside the lock body overwrote it.
+ *   i.e. the subsequent i_enable() would have restored the wrong IPL.
+ */
+#  define RWLOCK_EXIT_PERCPU_IOCTL(x, _cpu_idx)			\
+	do {								\
+		int _held = (_cpu_idx);					\
+		(_cpu_idx) = IPF_PERCPU_IDX_INIT;			\
+		if (_held == IPF_WRITE_SENTINEL) {			\
+			int _i;						\
+			int _wcpu_exit = IPF_CPU_INDEX;			\
+			/* Fire before any slot is released -- lock    \
+			 * still fully held, full KDB state preserved. */\
+			IPF_ASSERT_ISR_INTBASE((x), _wcpu_exit);	\
+			for (_i = IPF_MAX_CPUS - 1; _i >= 0; _i--)	\
+				if ((x)->ipf_cpu_lk[_i] != NULL)	\
+					drw_lock_done((x)->ipf_cpu_lk[_i]);\
+			i_enable((x)->ipfc_isr[_wcpu_exit]);		\
+		} else if (_held >= 0 && _held < IPF_MAX_CPUS) {	\
+			if ((x)->ipf_cpu_lk[_held] != NULL)		\
+				drw_lock_done((x)->ipf_cpu_lk[_held]);	\
+			i_enable((x)->ipfc_isr[_held]);			\
+		}							\
+	} while (0)
+
+/*
+ * Downgrade write-to-read (used after fr_ipsmove on the wildcard upgrade
+ * path in fr_stlookup).  Converts all write slots to read slots and
+ * resets _cpu_idx to the current CPU's slot.
+ */
+#  define MUTEX_DOWNGRADE_PERCPU(x, _cpu_idx)				\
+	do {								\
+		int _i;							\
+		int _cur = IPF_CPU_INDEX;				\
+		if ((x)->ipf_cpu_lk[_cur] != NULL)			\
+			drw_lock_write_to_read(				\
+			    (x)->ipf_cpu_lk[_cur]);			\
+		for (_i = 0; _i < IPF_MAX_CPUS; _i++) {		\
+			if (_i != _cur && (x)->ipf_cpu_lk[_i] != NULL)	\
+				drw_lock_done(				\
+				    (x)->ipf_cpu_lk[_i]);		\
+		}							\
+		(_cpu_idx) = _cur;					\
+	} while (0)
+
+/*
+ * IPFDEBUG variants of READ_ENTER_PERCPU and WRITE_ENTER_PERCPU.
+ *
+ * When IPFDEBUG is defined these redefine the two acquire macros so that
+ * every read-lock acquisition also captures the three-level call chain and the
+ * acquiring thread's ID into the per-CPU slots of the lock structure.  This
+ * information survives in the lock object and can be inspected post-mortem
+ * (crash dump or live kernel debug) to identify who held the lock.
+ *
+ * The debug fields are only present in the struct when IPFDEBUG is defined
+ * (see ipfrwlock_percpu_t above), so this block must mirror that guard.
+ *
+ * Enable by adding -DIPFDEBUG to CFLAGS in the Makefile.
+ * Disable by removing -DIPFDEBUG; the normal macros above are used instead.
+ *
+ * NOTE: getcaller/getcaller2/getcaller3 walk the back-chain and are only
+ * valid in a kernel context where a full stack frame is present.
+ */
+#ifdef IPFDEBUG
+
+extern void *getcaller(void);
+extern void *getcaller2(void);
+extern void *getcaller3(void);
+
+#  undef  READ_ENTER_PERCPU
+#  define READ_ENTER_PERCPU(x, _cpu_idx)				\
+	do {								\
+		int _isr = i_disable(PL_IMP);				\
+		(_cpu_idx) = IPF_CPU_INDEX;				\
+		(x)->ipfc_isr[(_cpu_idx)] = _isr;			\
+		if ((x)->ipf_cpu_lk[(_cpu_idx)] != NULL)		\
+			drw_lock_read((x)->ipf_cpu_lk[(_cpu_idx)]);	\
+		(x)->ipfc_caller[(_cpu_idx)]  = getcaller();		\
+		(x)->ipfc_caller2[(_cpu_idx)] = getcaller2();		\
+		(x)->ipfc_caller3[(_cpu_idx)] = getcaller3();		\
+		(x)->ipfc_tid[(_cpu_idx)]     = thread_self();		\
+	} while (0)
+
+/*
+ * WRITE_ENTER_PERCPU -- IPFDEBUG variant.
+ *
+ * Captures the three-level call chain and thread ID into the acquiring
+ * CPU's slot, exactly as READ_ENTER_PERCPU does.  The write path stores
+ * the IPL into ipfc_isr[_wcpu] (the current CPU slot, not the sentinel),
+ * so caller/tid are recorded in that same slot for post-mortem inspection.
+ *
+ * Recorded in slot ipfc_isr[IPF_CPU_INDEX] / ipfc_caller[IPF_CPU_INDEX]
+ * (the writer's own CPU), not in IPF_WRITE_SENTINEL, so it never collides
+ * with a concurrent reader's per-CPU slot.
+ */
+#  undef  WRITE_ENTER_PERCPU
+#  define WRITE_ENTER_PERCPU(x, _cpu_idx)				\
+	do {								\
+		int _i;							\
+		int _wisr = i_disable(PL_IMP);				\
+		int _wcpu = IPF_CPU_INDEX;				\
+		(x)->ipfc_isr[_wcpu]     = _wisr;			\
+		(x)->ipfc_caller[_wcpu]  = getcaller();			\
+		(x)->ipfc_caller2[_wcpu] = getcaller2();		\
+		(x)->ipfc_caller3[_wcpu] = getcaller3();		\
+		(x)->ipfc_tid[_wcpu]     = thread_self();		\
+		(_cpu_idx) = IPF_WRITE_SENTINEL;			\
+		for (_i = 0; _i < IPF_MAX_CPUS; _i++)			\
+			if ((x)->ipf_cpu_lk[_i] != NULL)		\
+				drw_lock_write((x)->ipf_cpu_lk[_i]);	\
+	} while (0)
+
+#endif /* IPFDEBUG */
+
+/*
+ * IPF_ASSERT_INTBASE -- ioctl-path entry/exit sanity check.
+ *
+ * Asserts that the calling thread is at INTBASE (intpri == 11) -- the expected
+ * priority for any ioctl or administrative code path.  If the thread is
+ * already elevated (intpri < 11, e.g. PL_IMP=3), it means a prior lock
+ * acquire leaked its i_disable() without a matching i_enable().
+ *
+ * On mismatch: prints the current intpri, the supplied label string, and
+ * (under IPFDEBUG) the last-recorded caller chain and tid from
+ * ipf_global_pcpu for the current CPU so you know which acquire site left
+ * the CPU elevated; then calls assert(0) to crash the system for KDB
+ * post-mortem analysis.
+ *
+ * Usage:
+ *   IPF_ASSERT_INTBASE("frrequest entry");
+ *   IPF_ASSERT_INTBASE("ipfioctl exit");
+ *
+ * Compiled out entirely when neither IPFDEBUG nor IPF_INTBASE_ASSERT is
+ * defined, so there is zero overhead in a normal production build.
+ * To enable without full IPFDEBUG overhead: add -DIPF_INTBASE_ASSERT to CFLAGS.
+ */
+#if defined(_KERNEL) && (defined(IPFDEBUG) || defined(IPF_INTBASE_ASSERT))
+/* Inline the definitions needed from sys/inline.h so CSA resolves
+ * regardless of include-guard or pragma ordering issues with XLC. */
+#ifndef IPF_CSA_DEFINED
+#define IPF_CSA_DEFINED
+extern struct kmstsave *my_csa(void);
+#ifdef __64BIT_KERNEL
+#pragma mc_func my_csa		{ "7c7142a6" }  /* mfsprg r3, SPRG1 */
+#pragma reg_killed_by my_csa	gr3
+#else
+#pragma mc_func my_csa		{ "4800b40b" }  /* bla 0xb408 */
+#pragma reg_killed_by my_csa	gr3,lr
+#endif /* __64BIT_KERNEL */
+#ifndef CSA
+#define CSA (my_csa())
+#endif
+#endif /* IPF_CSA_DEFINED */
+
+#  ifdef IPFDEBUG
+/*
+ * IPF_ASSERT_INTBASE: assert CSA->intpri == INTBASE.
+ *
+ * On failure prints:
+ *   - the label, current intpri, CPU, calling tid
+ *   - ipfc_isr[cpu] for ALL four percpu locks so the post-mortem can see
+ *     which lock's slot still holds a stale PL_IMP value
+ *   - the full ipfc_caller/tid chain from ipf_global_pcpu for this CPU
+ * Then crashes via assert(0) for KDB post-mortem.
+ */
+#    define IPF_ASSERT_INTBASE(_label)					\
+	do {								\
+		int _cur_pri = CSA->intpri;				\
+		if (_cur_pri != INTBASE) {				\
+			int _cpu = IPF_CPU_INDEX;			\
+			printf("IPF ASSERT_INTBASE FAIL [%s]: "		\
+			    "intpri=%d expected=%d CPU=%d tid=0x%x\n",	\
+			    (_label), _cur_pri, INTBASE, _cpu,		\
+			    (unsigned)thread_self());			\
+			printf("  ipf_global_pcpu.ipfc_isr[%d]  = %d\n",\
+			    _cpu, ipf_global_pcpu.ipfc_isr[_cpu]);	\
+			printf("  ip_pool_pcpu.ipfc_isr[%d]     = %d\n",\
+			    _cpu, ip_pool_pcpu.ipfc_isr[_cpu]);		\
+			printf("  ipf_state_pcpu.ipfc_isr[%d]   = %d\n",\
+			    _cpu, ipf_state_pcpu.ipfc_isr[_cpu]);	\
+			printf("  ipf_nat_pcpu.ipfc_isr[%d]     = %d\n",\
+			    _cpu, ipf_nat_pcpu.ipfc_isr[_cpu]);		\
+			printf("  ipf_global_pcpu.ipfc_caller[%d] = %p\n",\
+			    _cpu, ipf_global_pcpu.ipfc_caller[_cpu]);	\
+			printf("  ipf_global_pcpu.ipfc_caller2[%d]= %p\n",\
+			    _cpu, ipf_global_pcpu.ipfc_caller2[_cpu]);	\
+			printf("  ipf_global_pcpu.ipfc_caller3[%d]= %p\n",\
+			    _cpu, ipf_global_pcpu.ipfc_caller3[_cpu]);	\
+			printf("  ipf_global_pcpu.ipfc_tid[%d]    = 0x%x\n",\
+			    _cpu, (unsigned)ipf_global_pcpu.ipfc_tid[_cpu]);\
+			assert(0);					\
+		}							\
+	} while (0)
+
+/*
+ * IPF_ASSERT_ISR_INTBASE: assert that ipfc_isr[_wcpu] == INTBASE inside
+ * RWLOCK_EXIT_PERCPU, *before* the drw_lock_done loop runs.
+ *
+ * Purpose: if the isr slot already holds a non-INTBASE value at release
+ * time, the subsequent i_enable() will restore the wrong IPL -- this is
+ * the bug we are hunting.  Firing here (before any lock is released)
+ * preserves the full lock state for KDB inspection.
+ *
+ * Parameters:
+ *   _x    -- the ipfrwlock_percpu_t pointer (e.g. &ipf_global_pcpu)
+ *   _wcpu -- the CPU slot used at acquire time (IPF_CPU_INDEX captured
+ *            inside the macro via a local variable)
+ */
+#    define IPF_ASSERT_ISR_INTBASE(_x, _wcpu)				\
+	do {								\
+		int _isr = (_x)->ipfc_isr[(_wcpu)];			\
+		if (_isr != INTBASE) {					\
+			printf("IPF ISR CORRUPT before i_enable"	\
+			    " [%s+%d]: isr[%d]=%d expected=%d"		\
+			    " tid=0x%x\n",				\
+			    __FILE__, __LINE__, (_wcpu), _isr,		\
+			    INTBASE, (unsigned)thread_self());		\
+			printf("  ipf_global_pcpu.ipfc_isr[%d]  = %d\n",\
+			    (_wcpu), ipf_global_pcpu.ipfc_isr[(_wcpu)]);\
+			printf("  ip_pool_pcpu.ipfc_isr[%d]     = %d\n",\
+			    (_wcpu), ip_pool_pcpu.ipfc_isr[(_wcpu)]);	\
+			printf("  ipf_state_pcpu.ipfc_isr[%d]   = %d\n",\
+			    (_wcpu), ipf_state_pcpu.ipfc_isr[(_wcpu)]);	\
+			printf("  ipf_nat_pcpu.ipfc_isr[%d]     = %d\n",\
+			    (_wcpu), ipf_nat_pcpu.ipfc_isr[(_wcpu)]);	\
+			printf("  ipfc_caller[%d]  = %p\n",		\
+			    (_wcpu), (_x)->ipfc_caller[(_wcpu)]);	\
+			printf("  ipfc_caller2[%d] = %p\n",		\
+			    (_wcpu), (_x)->ipfc_caller2[(_wcpu)]);	\
+			printf("  ipfc_caller3[%d] = %p\n",		\
+			    (_wcpu), (_x)->ipfc_caller3[(_wcpu)]);	\
+			assert(0);					\
+		}							\
+	} while (0)
+
+#  else  /* IPF_INTBASE_ASSERT without full IPFDEBUG -- no caller arrays */
+#    define IPF_ASSERT_INTBASE(_label)					\
+	do {								\
+		int _cur_pri = CSA->intpri;				\
+		if (_cur_pri != INTBASE) {				\
+			int _cpu = IPF_CPU_INDEX;			\
+			printf("IPF ASSERT_INTBASE FAIL [%s]: "		\
+			    "intpri=%d expected=%d CPU=%d\n",		\
+			    (_label), _cur_pri, INTBASE, _cpu);		\
+			printf("  ipf_global_pcpu.ipfc_isr[%d]  = %d\n",\
+			    _cpu, ipf_global_pcpu.ipfc_isr[_cpu]);	\
+			printf("  ip_pool_pcpu.ipfc_isr[%d]     = %d\n",\
+			    _cpu, ip_pool_pcpu.ipfc_isr[_cpu]);		\
+			printf("  ipf_state_pcpu.ipfc_isr[%d]   = %d\n",\
+			    _cpu, ipf_state_pcpu.ipfc_isr[_cpu]);	\
+			printf("  ipf_nat_pcpu.ipfc_isr[%d]     = %d\n",\
+			    _cpu, ipf_nat_pcpu.ipfc_isr[_cpu]);		\
+			assert(0);					\
+		}							\
+	} while (0)
+#    define IPF_ASSERT_ISR_INTBASE(_x, _wcpu)	do { } while (0)
+#  endif /* IPFDEBUG */
+#else  /* no debug build -- compile out entirely */
+#  define IPF_ASSERT_INTBASE(_label)		do { } while (0)
+#  define IPF_ASSERT_ISR_INTBASE(_x, _wcpu)	do { } while (0)
+#endif /* _KERNEL && (IPFDEBUG || IPF_INTBASE_ASSERT) */
+
+#endif /* _AIX51 (per-CPU lock block) */
+
+
 
 #if !defined(__GNUC__) || \
     (defined(__FreeBSD_version) && (__FreeBSD_version >= 503000))
@@ -1772,11 +2349,9 @@ extern	char	*fr_getifname __P((struct ifnet *, char *));
 #endif
 
 #ifndef HDR_T_PRIVATE
-typedef	struct	tcphdr	tcphdr_t;
 typedef	struct	udphdr	udphdr_t;
 #endif
 typedef	struct	icmp	icmphdr_t;
-typedef	struct	ip	ip_t;
 typedef	struct	ether_header	ether_header_t;
 typedef	struct	tcpiphdr	tcpiphdr_t;
 
@@ -2414,21 +2989,21 @@ typedef	struct	tcpiphdr	tcpiphdr_t;
 /*
  * TCP States
  */
-#define IPF_TCPS_CLOSED		0	/* closed */
-#define IPF_TCPS_LISTEN		1	/* listening for connection */
-#define IPF_TCPS_SYN_SENT	2	/* active, have sent syn */
-#define IPF_TCPS_SYN_RECEIVED	3	/* have send and received syn */
-#define IPF_TCPS_HALF_ESTAB	4	/* for connections not fully "up" */
+#define IPF_TCPS_LISTEN		0	/* listening for connection */
+#define IPF_TCPS_SYN_SENT	1	/* active, have sent syn */
+#define IPF_TCPS_SYN_RECEIVED	2	/* have send and received syn */
+#define IPF_TCPS_HALF_ESTAB	3	/* for connections not fully "up" */
 /* states < IPF_TCPS_ESTABLISHED are those where connections not established */
-#define IPF_TCPS_ESTABLISHED	5	/* established */
-#define IPF_TCPS_CLOSE_WAIT	6	/* rcvd fin, waiting for close */
+#define IPF_TCPS_ESTABLISHED	4	/* established */
+#define IPF_TCPS_CLOSE_WAIT	5	/* rcvd fin, waiting for close */
 /* states > IPF_TCPS_CLOSE_WAIT are those where user has closed */
-#define IPF_TCPS_FIN_WAIT_1	7	/* have closed, sent fin */
-#define IPF_TCPS_CLOSING	8	/* closed xchd FIN; await FIN ACK */
-#define IPF_TCPS_LAST_ACK	9	/* had fin and close; await FIN ACK */
+#define IPF_TCPS_FIN_WAIT_1	6	/* have closed, sent fin */
+#define IPF_TCPS_CLOSING	7	/* closed xchd FIN; await FIN ACK */
+#define IPF_TCPS_LAST_ACK	8	/* had fin and close; await FIN ACK */
 /* states > IPF_TCPS_CLOSE_WAIT && < IPF_TCPS_FIN_WAIT_2 await ACK of FIN */
-#define IPF_TCPS_FIN_WAIT_2	10	/* have closed, fin is acked */
-#define IPF_TCPS_TIME_WAIT	11	/* in 2*msl quiet wait after close */
+#define IPF_TCPS_FIN_WAIT_2	9	/* have closed, fin is acked */
+#define IPF_TCPS_TIME_WAIT	10	/* in 2*msl quiet wait after close */
+#define IPF_TCPS_CLOSED		11	/* closed */
 #define IPF_TCP_NSTATES		12
 
 #define	TCP_MSL			120

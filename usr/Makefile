@@ -1,14 +1,14 @@
-# @(#)52  1.1  src/ipfl/usr/Makefile, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/8/06 07:32:09
+# @(#)52  1.1  src/ipfl/usr/Makefile, ipflt, 71ipfl71c 5/8/06 07:32:09
 # IBM_PROLOG_BEGIN_TAG 
 # This is an automatically generated prolog. 
 #  
-# 53ipfl53H src/ipfl/usr/Makefile 1.1 
+# 71ipfl71c src/ipfl/usr/Makefile 1.1 
 #  
 # Licensed Materials - Property of IBM 
 #  
 # Restricted Materials of IBM 
 #  
-# (C) COPYRIGHT International Business Machines Corp. 2006 
+# COPYRIGHT International Business Machines Corp. 2006 
 # All Rights Reserved 
 #  
 # US Government Users Restricted Rights - Use, duplication or 

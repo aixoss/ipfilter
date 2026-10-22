@@ -1,13 +1,13 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/netinet/ip_irc_pxy.c 1.1                    */
+/* 71ipfl71c src/ipfl/kernext/netinet/ip_irc_pxy.c 1.2                    */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006                   */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
@@ -15,7 +15,7 @@
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
 /*
-static char sccsid[] = "@(#)45  1.2  src/ipfl/kernext/netinet/ip_irc_pxy.c, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/10/06 15:02:43";
+static char sccsid[] = "@(#)45  1.2  src/ipfl/kernext/netinet/ip_irc_pxy.c, ipflt, 71ipfl71c 5/10/06 15:02:43";
 */
 /*
  * Copyright (C) 2000-2003 Darren Reed

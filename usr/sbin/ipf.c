@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/usr/sbin/ipf.c 1.3                                  */
+/* 71ipfl71c src/ipfl/usr/sbin/ipf.c 1.3                                  */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006                   */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)61  1.3  src/ipfl/usr/sbin/ipf.c, ipflt, 53ipfl53H, 0624A_53ipfl53H 6/13/06 18:41:03";
+static char sccsid[] = "@(#)61  1.3  src/ipfl/usr/sbin/ipf.c, ipflt, 71ipfl71c 6/13/06 18:41:03";
 /*
  * Copyright (C) 1993-2001 by Darren Reed.
  *
@@ -377,6 +377,87 @@ char	*opt;
 }
 
 
+static	void	flushstate(arg)
+char	*arg;
+{
+	FILE *fp;
+	char line[128];
+	int fmt, n, v, p, sp, dp;
+	char sa[128], da[128];
+	ipfobj_t obj;
+	ipstate_t state;
+
+	closedevice();
+	if (opendevice(IPSTATE_NAME, 1) == -2)
+		exit(1);
+	if ((fp = fopen(arg, "r")) == NULL) {
+		perror("fopen");
+		fprintf(stderr, "Failed to open %s\n", arg);
+		exit(1);
+	}
+
+	bzero(&obj, sizeof(obj));
+	obj.ipfo_rev = IPFILTER_VERSION;
+	obj.ipfo_size = sizeof(state);
+	obj.ipfo_ptr = &state;
+	obj.ipfo_type = IPFOBJ_IPSTATE;
+	bzero(&state, sizeof(state));
+
+	while (fgets(line, sizeof(line), fp) != NULL) {
+		n = sscanf(line, "%d,%d,%d,%[^,],%[^,],%d,%d\n",
+					&fmt, &v, &p, sa, da, &sp, &dp);
+		if (n != 7) {
+			fprintf(stderr, "Missing fields: %d: %s\n", n, line);
+			continue;
+		}
+		if (fmt != 1) {
+			fprintf(stderr, "Wrong format number: %d: %s\n", fmt, line);
+			continue;
+		}
+		if (v != 4 && v != 6) {
+			fprintf(stderr, "Wrong IP version: %d: %s\n", v, line);
+			continue;
+		}
+		if (p != IPPROTO_TCP && p != IPPROTO_UDP && p != IPPROTO_ICMP) {
+			fprintf(stderr, "Wrong IP protocol: %d: %s\n", p, line);
+			continue;
+		}
+		state.is_v = v;
+		state.is_p = p;
+
+		n = inet_pton(v == 4 ? AF_INET : AF_INET6, sa, &state.is_src);
+		if (n != 1) {
+			fprintf(stderr, "src: inet_pton: %s\n", sa);
+			continue;
+		}
+		n = inet_pton(v == 4 ? AF_INET : AF_INET6, da, &state.is_dst);
+		if (n != 1) {
+			fprintf(stderr, "dst: inet_pton: %s\n", da);
+			continue;
+		}
+
+		if (p == IPPROTO_TCP) {
+			state.is_ps.is_ts.ts_sport = ntohs(sp);
+			state.is_ps.is_ts.ts_dport = ntohs(dp);
+		} else if (p == IPPROTO_UDP) {
+			state.is_ps.is_us.us_sport = ntohs(sp);
+			state.is_ps.is_us.us_dport = ntohs(dp);
+		} else if (p == IPPROTO_ICMP) {
+			state.is_ps.is_ics.ici_id = ntohs(sp);
+			state.is_ps.is_ics.ici_type = dp;
+		}
+
+		if (ioctl(fd, SIOCDELST, &obj, sizeof(obj)) == -1) {
+			perror("ioctl");
+			fprintf(stderr, "Failed to delete: %s", line);
+			continue;
+		}
+	}
+
+	fclose(fp);
+	closedevice();
+}
+
 static	void	flushfilter(arg)
 char	*arg;
 {
@@ -384,6 +465,12 @@ char	*arg;
 
 	if (!arg || !*arg)
 		return;
+
+	if (arg[0] == 'S' && arg[1] != '\0') {
+		flushstate(arg+1);
+		return;
+	}
+
 	if (!strcmp(arg, "s") || !strcmp(arg, "S")) {
 		if (*arg == 'S')
 			fl = 0;

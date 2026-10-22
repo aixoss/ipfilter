@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/netinet/md5.h 1.1                           */
+/* 71ipfl71c src/ipfl/kernext/netinet/md5.h 1.2                           */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006                   */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-/* @(#)37  1.2  src/ipfl/kernext/netinet/md5.h, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/10/06 12:55:39 */
+/* @(#)37  1.2  src/ipfl/kernext/netinet/md5.h, ipflt, 71ipfl71c 5/10/06 12:55:39 */
 /*
  ***********************************************************************
  ** md5.h -- header file for implementation of MD5                    **

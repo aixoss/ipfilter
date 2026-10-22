@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/netinet/ip_fil.h 1.1                        */
+/* 71ipfl71c src/ipfl/kernext/netinet/ip_fil.h 1.3                        */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006,2025              */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-/* @(#)21  1.2  src/ipfl/kernext/netinet/ip_fil.h, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/10/06 12:55:19 */
+/* @(#)21  1.2  src/ipfl/kernext/netinet/ip_fil.h, ipflt, 71ipfl71c 5/10/06 12:55:19 */
 /*
  * Copyright (C) 1993-2001, 2003 by Darren Reed.
  *
@@ -28,6 +28,7 @@
 #define	__IP_FIL_H__
 
 #include "netinet/ip_compat.h"
+#include "netinet/ip.h"
 
 #ifndef	SOLARIS
 # define SOLARIS (defined(sun) && (defined(__svr4__) || defined(__SVR4)))
@@ -73,6 +74,7 @@
 # define	SIOCIPFGET	_IOWR('r', 88, struct ipfobj)
 # define	SIOCIPFSET	_IOWR('r', 89, struct ipfobj)
 # define	SIOCIPFL6	_IOWR('r', 90, int)
+# define	SIOCIPFLP	_IOW('r', 91, int)
 #else
 # define	SIOCADAFR	_IOW(r, 60, struct ipfobj)
 # define	SIOCRMAFR	_IOW(r, 61, struct ipfobj)
@@ -105,6 +107,7 @@
 # define	SIOCIPFGET	_IOWR(r, 88, struct ipfobj)
 # define	SIOCIPFSET	_IOWR(r, 89, struct ipfobj)
 # define	SIOCIPFL6	_IOWR(r, 90, int)
+# define	SIOCIPFLP	_IOW(r, 91, int)
 #endif
 #define	SIOCADDFR	SIOCADAFR
 #define	SIOCDELFR	SIOCRMAFR
@@ -319,6 +322,26 @@ typedef	struct	fr_info	{
 	ip_t	*fin_ip;
 	mb_t	**fin_mp;		/* pointer to pointer to mbuf */
 	mb_t	*fin_m;			/* pointer to mbuf */
+	/*
+	 * Per-CPU lock-tracking fields — placed after fin_m so they are
+	 * unconditionally beyond FI_COPYSIZE (offsetof fin_dp) and can never
+	 * be overwritten by a cache hit bcopy regardless of future struct
+	 * additions above fin_dp.
+	 *
+	 * fin_cpuidx        : ipf_state_pcpu slot; set by fr_stlookup(),
+	 *                     released by fr_checkstate().
+	 * fin_nat_cpuidx    : ipf_nat_pcpu slot; threaded through proxy
+	 *                     callbacks (e.g. ippr_rpcb_getnat).
+	 * fin_global_cpuidx : ipf_global_pcpu slot captured at fr_check()
+	 *                     entry; passed to PERCPU_STATS_INCL so
+	 *                     sub-functions avoid a redundant mycpu() call.
+	 *
+	 * All three are initialised to IPF_PERCPU_IDX_INIT (-1) before use,
+	 * meaning "no per-CPU lock held".
+	 */
+	int	fin_cpuidx;
+	int	fin_nat_cpuidx;
+	int	fin_global_cpuidx;
 #ifdef	MENTAT
 	mb_t	*fin_qfm;		/* pointer to mblk where pkt starts */
 	void	*fin_qpi;
@@ -1285,9 +1308,26 @@ extern	int	iplwrite __P((dev_t, struct uio *));
 
 extern	ipfmutex_t	ipl_mutex, ipf_authmx, ipf_rw, ipf_hostmap;
 extern	ipfmutex_t	ipf_timeoutlock, ipf_stinsert, ipf_natio, ipf_nat_new;
-extern	ipfrwlock_t	ipf_mutex, ipf_global, ip_poolrw, ipf_ipidfrag;
+extern	ipfrwlock_t	ipf_mutex, ipf_ipidfrag;
 extern	ipfrwlock_t	ipf_frag, ipf_state, ipf_nat, ipf_natfrag, ipf_auth;
 extern	ipfrwlock_t	ipf_frcache;
+/*
+ * Per-CPU shadow locks for the rwlocks that are acquired read-mode on
+ * packet paths.  ipfrwlock_percpu_t holds an array of IPF_MAX_CPUS per-CPU
+ * DRW locks; readers lock only their own CPU slot, eliminating the shared
+ * reader-count cacheline bottleneck.
+ *
+ * ipf_global_pcpu is the lifecycle guard lock: fr_check() and fr_slowtimer()
+ * hold it read-mode; ipldetach() acquires it write-mode to quiesce all
+ * in-flight callers before destroying data structures and sub-locks.
+ */
+extern	ipfrwlock_percpu_t	ipf_global_pcpu;
+extern	ipfrwlock_percpu_t	ipf_frcache_pcpu;
+extern	ipfrwlock_percpu_t	ipf_state_pcpu;
+extern	ipfrwlock_percpu_t	ipf_nat_pcpu;
+extern	ipfrwlock_percpu_t	ipf_frag_pcpu;
+extern	ipfrwlock_percpu_t	ip_pool_pcpu;
+#define ip_poolrw ip_pool_pcpu
 
 extern	char	*memstr __P((const char *, char *, size_t, size_t));
 extern	int	count4bits __P((u_32_t));
@@ -1390,6 +1430,7 @@ extern	int	fr_minttl;
 extern	int	fr_refcnt;
 extern	int	fr_control_forwarding;
 extern	int	fr_update_ipid;
+extern	int	ipf_loopback;
 extern	int	nat_logging;
 extern	int	ipstate_logging;
 extern	int	ipl_suppress;
@@ -1411,7 +1452,31 @@ extern	int	icmpreplytype6[ICMP6_MAXTYPE + 1];
 #endif
 extern	int	icmpreplytype4[ICMP_MAXTYPE + 1];
 extern	struct frgroup *ipfgroups[IPL_LOGSIZE][2];
-extern	struct filterstats frstats[];
+/*
+ * Per-CPU statistics array.  Indexed [cpu_slot][in/out] where cpu_slot is
+ * mycpu() % IPF_MAX_CPUS.  Each CPU updates its own slot without atomics.
+ * fr_getstat() sums all slots; fr_zerostats() zeroes all slots.
+ */
+extern	struct filterstats frstats_pcpu[IPF_MAX_CPUS][2];
+
+/*
+ * PERCPU_STATS_INCL -- plain (non-atomic) increment of a per-CPU stats field.
+ *
+ * Safe to use without atomics because:
+ *  - fr_check() holds READ_ENTER_PERCPU(&ipf_global_pcpu) for its entire
+ *    duration, which pins the calling thread to a stable CPU slot.
+ *  - fin_global_cpuidx carries the slot index so sub-functions do not need
+ *    an additional mycpu() call.
+ *
+ * Usage:
+ *   PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_pass);
+ *
+ * fin_global_cpuidx is the CPU index captured at fr_check() entry and passed
+ * down through fin; the macro writes only into that CPU's stats slot.
+ */
+#define PERCPU_STATS_INCL(cpu_idx, out, field) \
+	frstats_pcpu[(cpu_idx)][(out)].field++
+
 extern	frentry_t *ipfrule_match __P((fr_info_t *));
 extern	u_char	ipf_iss_secret[32];
 extern	ipftuneable_t ipf_tuneables[];

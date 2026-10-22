@@ -1,26 +1,29 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/usr/lib/load_poolnode.c 1.1                         */
+/* 71ipfl71c src/ipfl/usr/lib/load_poolnode.c 1.1                         */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006                   */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)44  1.1  src/ipfl/usr/lib/load_poolnode.c, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/8/06 07:25:25";
+static char sccsid[] = "@(#)44  1.1  src/ipfl/usr/lib/load_poolnode.c, ipflt, 71ipfl71c 5/8/06 07:25:25";
 /*
  * Copyright (C) 2002 by Darren Reed.
  *
  * See the IPFILTER.LICENCE file for details on licencing.
  *
  * $Id: load_poolnode.c,v 1.3.2.1 2004/03/06 14:33:29 darrenr Exp $
+ */
+/*
+ * Copyright 2026 Cisco Systems, Inc. All Rights Reserved.
  */
 
 #include <fcntl.h>
@@ -69,8 +72,16 @@ ioctlfunc_t iocfunc;
 
 	if (err != 0) {
 		if ((opts & OPT_DONOTHING) == 0) {
-			perror("load_pool:SIOCLOOKUP*NODE");
-			return -1;
+			if (errno == EEXIST) {
+				fprintf(stderr, "Warning load_poolnode : Pool %s already contains %s\n", op.iplo_name, inet_ntoa(pn.ipn_addr.adf_addr.in4));
+				return errno;
+			} else if (errno == ENOENT) {
+				fprintf(stderr, "Warning load_poolnode : Pool %s does not contain %s\n", op.iplo_name, inet_ntoa(pn.ipn_addr.adf_addr.in4));
+				return errno;
+			} else	{
+				perror("load_pool:SIOCLOOKUP*NODE");
+				return -1;
+			}
 		}
 	}
 

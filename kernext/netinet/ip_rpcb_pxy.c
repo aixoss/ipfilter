@@ -1,13 +1,13 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/netinet/ip_rpcb_pxy.c 1.1                   */
+/* 71ipfl71c src/ipfl/kernext/netinet/ip_rpcb_pxy.c 1.2                   */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006                   */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
@@ -15,7 +15,7 @@
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
 /*
-static char sccsid[] = "@(#)50  1.2  src/ipfl/kernext/netinet/ip_rpcb_pxy.c, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/10/06 15:02:48";
+static char sccsid[] = "@(#)50  1.2  src/ipfl/kernext/netinet/ip_rpcb_pxy.c, ipflt, 71ipfl71c 5/10/06 15:02:48";
 */
 /*
  * Copyright (C) 2002-2003 by Ryan Beasley <ryanb@goddamnbastard.org>
@@ -83,12 +83,12 @@ static u_int	ippr_rpcb_atoi __P((char *));
 static int	ippr_rpcb_modreq __P((fr_info_t *, nat_t *, rpc_msg_t *,
 	mb_t *, u_int));
 static int	ippr_rpcb_decoderep __P((fr_info_t *, nat_t *,
-	rpcb_session_t *, rpc_msg_t *, rpcb_xact_t **));
+	rpcb_session_t *, rpc_msg_t *, rpcb_xact_t **, int *));
 static rpcb_xact_t *	ippr_rpcb_lookup __P((rpcb_session_t *, u_32_t));
 static void	ippr_rpcb_deref __P((rpcb_session_t *, rpcb_xact_t *));
 static int	ippr_rpcb_getproto __P((rpc_msg_t *, xdr_proto_t *,
 	u_32_t **));
-static int	ippr_rpcb_getnat __P((fr_info_t *, nat_t *, u_int, u_int));
+static int	ippr_rpcb_getnat __P((fr_info_t *, nat_t *, u_int, u_int, int *));
 static int	ippr_rpcb_modv3 __P((fr_info_t *, nat_t *, rpc_msg_t *,
 	mb_t *, u_int));
 static int	ippr_rpcb_modv4 __P((fr_info_t *, nat_t *, rpc_msg_t *,
@@ -327,7 +327,7 @@ ippr_rpcb_out(fin, aps, nat)
 	rm->rm_buflen = dlen;
 
 	/* Send off to decode reply. */
-	rv = ippr_rpcb_decoderep(fin, nat, rs, rm, &rx);
+	rv = ippr_rpcb_decoderep(fin, nat, rs, rm, &rx, &fin->fin_nat_cpuidx);
 
 	switch(rv)
 	{
@@ -867,12 +867,13 @@ ippr_rpcb_modreq(fin, nat, rm, m, off)
 /* is enough room in rs_buf for the basic RPC message "preamble".	*/
 /* --------------------------------------------------------------------	*/
 static int
-ippr_rpcb_decoderep(fin, nat, rs, rm, rxp)
+ippr_rpcb_decoderep(fin, nat, rs, rm, rxp, nat_cpu_idxp)
 	fr_info_t *fin;
 	nat_t *nat;
 	rpcb_session_t *rs;
 	rpc_msg_t *rm;
 	rpcb_xact_t **rxp;
+	int *nat_cpu_idxp;
 {
 	rpcb_listp_t *rl;
 	rpcb_entry_t *re;
@@ -945,7 +946,7 @@ ippr_rpcb_decoderep(fin, nat, rs, rm, rxp)
 			return(-1);
 
 		/* Create NAT & state table entries. */
-		if (ippr_rpcb_getnat(fin, nat, rx->rx_proto, (u_int)xdr) != 0)
+		if (ippr_rpcb_getnat(fin, nat, rx->rx_proto, (u_int)xdr, nat_cpu_idxp) != 0)
 			return(-1);
 		break;
 	case RPCB_RES_STRING:
@@ -972,7 +973,7 @@ ippr_rpcb_decoderep(fin, nat, rs, rm, rxp)
 
 		/* Create NAT & state table entries. */
 		if (ippr_rpcb_getnat(fin, nat, rx->rx_proto,
-				     (u_int)rr->rr_v3.xu_port) != 0)
+			             (u_int)rr->rr_v3.xu_port, nat_cpu_idxp) != 0)
 			return(-1);
 		break;
 	case RPCB_RES_LIST:
@@ -1029,7 +1030,8 @@ ippr_rpcb_decoderep(fin, nat, rs, rm, rxp)
 			re = &rl->rl_entries[rl->rl_cnt];
 			rv = ippr_rpcb_getnat(fin, nat,
 			                      re->re_proto.xp_proto,
-				              (u_int)re->re_maddr.xu_port);
+				              (u_int)re->re_maddr.xu_port,
+				              nat_cpu_idxp);
 			if (rv != 0)
 				return(-1);
 		}
@@ -1158,11 +1160,12 @@ ippr_rpcb_getproto(rm, xp, p)
 /* attempt between RPC client and server.				*/
 /* --------------------------------------------------------------------	*/
 static int
-ippr_rpcb_getnat(fin, nat, proto, port)
+ippr_rpcb_getnat(fin, nat, proto, port, nat_cpu_idxp)
 	fr_info_t *fin;
 	nat_t *nat;
 	u_int proto;
 	u_int port;
+	int *nat_cpu_idxp;
 {
 	ipnat_t *ipn, ipnat;
 	tcphdr_t tcp;
@@ -1211,15 +1214,16 @@ ippr_rpcb_getnat(fin, nat, proto, port)
 	 */
 	is = fr_stlookup(&fi, &tcp, NULL);
 	if (is != NULL)
-		RWLOCK_EXIT(&ipf_state);
+		RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, fi.fin_cpuidx);
 
-	RWLOCK_EXIT(&ipf_nat);
+	RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, *nat_cpu_idxp);
+	*nat_cpu_idxp = IPF_PERCPU_IDX_INIT;
 
-	WRITE_ENTER(&ipf_nat);
+	WRITE_ENTER_PERCPU(&ipf_nat_pcpu, *nat_cpu_idxp);
 	natl = nat_inlookup(&fi, nflags, proto, fi.fin_src, fi.fin_dst);
 
 	if ((natl != NULL) && (is != NULL)) {
-		MUTEX_DOWNGRADE(&ipf_nat);
+		MUTEX_DOWNGRADE_PERCPU(&ipf_nat_pcpu, *nat_cpu_idxp);
 		return(0);
 	}
 
@@ -1260,7 +1264,7 @@ ippr_rpcb_getnat(fin, nat, proto, port)
 		bcopy((char *)&ipnat, (char *)ipn, sizeof(ipnat));
 
 		if (natl == NULL) {
-			MUTEX_DOWNGRADE(&ipf_nat);
+			MUTEX_DOWNGRADE_PERCPU(&ipf_nat_pcpu, *nat_cpu_idxp);
 			return(-1);
 		}
 
@@ -1268,7 +1272,7 @@ ippr_rpcb_getnat(fin, nat, proto, port)
 		(void) nat_proto(&fi, natl, nflags);
 		nat_update(&fi, natl, natl->nat_ptr);
 	}
-	MUTEX_DOWNGRADE(&ipf_nat);
+	MUTEX_DOWNGRADE_PERCPU(&ipf_nat_pcpu, *nat_cpu_idxp);
 
 	if (is == NULL) {
 		/* Create state entry.  Return NULL if this fails. */

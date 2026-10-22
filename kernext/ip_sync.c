@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/ip_sync.c 1.1                               */
+/* 71ipfl71c src/ipfl/kernext/ip_sync.c 1.1                               */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006                   */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)12  1.1  src/ipfl/kernext/ip_sync.c, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/8/06 07:26:46";
+static char sccsid[] = "@(#)12  1.1  src/ipfl/kernext/ip_sync.c, ipflt, 71ipfl71c 5/8/06 07:26:46";
 /*
  * Copyright (C) 1995-1998 by Darren Reed.
  *
@@ -566,15 +566,16 @@ void *data;
 		 * We need to find the same rule on the slave as was used on
 		 * the master to create this state entry.
 		 */
-		READ_ENTER(&ipf_mutex);
+		{
+		int _cpu_idx_mutex = IPF_PERCPU_IDX_INIT;
+		READ_ENTER_PERCPU(&ipf_global_pcpu, _cpu_idx_mutex);	/* Opt 12: was ipf_mutex_pcpu */
 		fr = fr_getrulen(IPL_LOGIPF, sn.is_group, sn.is_rulen);
 		if (fr != NULL) {
-			MUTEX_ENTER(&fr->fr_lock);
-			fr->fr_ref++;
-			fr->fr_statecnt++;
-			MUTEX_EXIT(&fr->fr_lock);
+			ATOMIC_INC32(fr->fr_ref);      /* Opt 13: lock-free ref bump */
+			ATOMIC_INC32(fr->fr_statecnt); /* Opt 13: independent counter */
 		}
-		RWLOCK_EXIT(&ipf_mutex);
+		RWLOCK_EXIT_PERCPU(&ipf_global_pcpu, _cpu_idx_mutex);	/* Opt 12: was ipf_mutex_pcpu */
+		}
 
 		if (ipf_sync_debug > 4)
 			printf("[%d] Filter rules = %p\n", sp->sm_num, fr);
@@ -587,7 +588,9 @@ void *data;
 		bcopy(sp, &sl->sl_hdr, sizeof(struct synchdr));
 
 		WRITE_ENTER(&ipf_syncstate);
-		WRITE_ENTER(&ipf_state);
+		{
+		int _cpu_idx_state = IPF_PERCPU_IDX_INIT;
+		WRITE_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx_state);
 
 		sl->sl_pnext = syncstatetab + hv;
 		sl->sl_next = syncstatetab[hv];
@@ -627,7 +630,8 @@ void *data;
 			break;
 		}
 
-		READ_ENTER(&ipf_state);
+		int _cpu_idx_state = IPF_PERCPU_IDX_INIT;
+		READ_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx_state);
 
 		if (ipf_sync_debug > 6)
 			printf("[%d] Data from state v:%d p:%d cmd:%d table:%d rev:%d\n", 
@@ -669,7 +673,8 @@ void *data;
 	}
 
 	if (err == 0) {
-		RWLOCK_EXIT(&ipf_state);
+		RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx_state);
+		}
 		RWLOCK_EXIT(&ipf_syncstate);
 	}
 
@@ -754,14 +759,17 @@ void *data;
 		sl->sl_ipn = n;
 		sl->sl_num = ntohl(sp->sm_num);
 
-		WRITE_ENTER(&ipf_nat);
+		{
+		int _cpu_idx = IPF_PERCPU_IDX_INIT;
+		WRITE_ENTER_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 		sl->sl_pnext = syncstatetab + hv;
 		sl->sl_next = syncstatetab[hv];
 		if (syncstatetab[hv] != NULL)
 			syncstatetab[hv]->sl_pnext = &sl->sl_next;
 		syncstatetab[hv] = sl;
 		nat_insert(n, sl->sl_rev);
-		RWLOCK_EXIT(&ipf_nat);
+		RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx);
+		}
 		break;
 
 	case SMC_UPDATE :
@@ -776,7 +784,9 @@ void *data;
 			break;
 		}
 
-		READ_ENTER(&ipf_nat);
+		{
+		int _cpu_idx = IPF_PERCPU_IDX_INIT;
+		READ_ENTER_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 
 		nat = sl->sl_ipn;
 
@@ -784,7 +794,8 @@ void *data;
 		fr_setnatqueue(nat, sl->sl_rev);
 		MUTEX_EXIT(&nat->nat_lock);
 
-		RWLOCK_EXIT(&ipf_nat);
+		RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx);
+		}
 
 		break;
 

@@ -1,20 +1,23 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/usr/sbin/ipf_y.y 1.1                                */
+/* 71ipfl71c src/ipfl/usr/sbin/ipf_y.y 1.2                                */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006                   */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-/* @(#)62  1.2  src/ipfl/usr/sbin/ipf_y.y, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/10/06 15:24:15 */
+/* @(#)62  1.2  src/ipfl/usr/sbin/ipf_y.y, ipflt, 71ipfl71c 5/10/06 15:24:15 */
+/*
+ * Copyright 2022 Illumio, Inc. All Rights Reserved.
+ */
 %{
 #include "ipf.h"
 #include <sys/ioctl.h>
@@ -67,7 +70,7 @@ static	int		ipffd = -1;
 static	int		*yycont = 0;
 static	ioctlfunc_t	ipfioctl[IPL_LOGSIZE];
 static	addfunc_t	ipfaddfunc = NULL;
-static	struct	wordtab ipfwords[95];
+static	struct	wordtab ipfwords[97];
 static	struct	wordtab	addrwords[4];
 static	struct	wordtab	maskwords[5];
 static	struct	wordtab icmpcodewords[17];
@@ -179,6 +182,7 @@ static	struct	wordtab logwords[33];
 
 %token	IPFY_PRI_EMERG IPFY_PRI_ALERT IPFY_PRI_CRIT IPFY_PRI_ERR IPFY_PRI_WARN
 %token	IPFY_PRI_NOTICE IPFY_PRI_INFO IPFY_PRI_DEBUG
+%token	IPFY_SET_LOOPBACK IPFY_SET
 %%
 file:	line
 	| assign
@@ -196,6 +200,7 @@ line:	xx rule		{ while ((fr = frtop) != NULL) {
 			  resetlexer();
 			}
 	| YY_COMMENT
+	| set
 	;
 
 xx:					{ newrule(); }
@@ -210,6 +215,28 @@ assign:	YY_STR assigning YY_STR ';'	{ set_variable($1, $3);
 
 assigning:
 	'='				{ yyvarnext = 1; }
+	;
+
+set:
+	IPFY_SET IPFY_SET_LOOPBACK YY_STR ';'
+			{
+			  int data;
+			  if (frold != NULL) {
+				yyerror("ipf rules before \"set\"");
+				return 0;
+			  }
+			  if (!strcmp($3, "true"))
+				data = 1;
+			  else if (!strcmp($3, "false"))
+				data = 0;
+			  else {
+				yyerror("invalid argument for ipf_loopback");
+				return 0;
+			  }
+			  if (((opts & OPT_DONOTHING) == 0) &&
+			      (ioctl(ipffd, SIOCIPFLP, &data) == -1))
+				perror("ioctl(SIOCIPFLP)");
+			}
 	;
 
 rule:	inrule eol
@@ -878,7 +905,7 @@ ipaddr:	IPFY_ANY			{ bzero(&($$), sizeof($$));
 					  $$.m.in4_addr = 0xffffffff;
 					  yyexpectaddr = 0; }
 	| hostname			{ yyresetdict();
-					  $$.a.in4_addr = $1.s_addr; }
+					  $<ipp>$.a.in4_addr = $1.s_addr; }
 		maskspace		{ yysetdict(maskwords); }
 		ipv4mask		{ $$.m.in4_addr = $5.s_addr;
 					  $$.a.in4_addr &= $5.s_addr;
@@ -889,7 +916,7 @@ ipaddr:	IPFY_ANY			{ bzero(&($$), sizeof($$));
 					  yyresetdict();
 					  yyexpectaddr = 0; }
 	| YY_IPV6			{ yyresetdict();
-					  bcopy(&$1, &$$.a, sizeof($$.a)); }
+					  bcopy(&$1, &$<ipp>$.a, sizeof($<ipp>$.a)); }
 		maskspace		{ yysetdict(maskwords); }
 		ipv6mask		{ bcopy(&$5, &$$.m, sizeof($$.m));
 					  yyresetdict();
@@ -1437,7 +1464,7 @@ ipv4:	ipv4_24 '.' YY_NUMBER
 %%
 
 
-static	struct	wordtab ipfwords[95] = {
+static	struct	wordtab ipfwords[97] = {
 	{ "age",			IPFY_AGE },
 	{ "ah",				IPFY_AH },
 	{ "all",			IPFY_ALL },
@@ -1473,6 +1500,7 @@ static	struct	wordtab ipfwords[95] = {
 	{ "icmp",			IPFY_ICMP },
 	{ "icmp-type",			IPFY_ICMPTYPE },
 	{ "in",				IPFY_IN },
+	{ "intercept_loopback",		IPFY_SET_LOOPBACK },
 	{ "in-via",			IPFY_INVIA },
 	{ "ipopt",			IPFY_IPOPTS },
 	{ "ipopts",			IPFY_IPOPTS },
@@ -1516,6 +1544,7 @@ static	struct	wordtab ipfwords[95] = {
 	{ "route-to",			IPFY_ROUTETO },
 	{ "sec-class",			IPFY_SECCLASS },
 	{ "set-tag",			IPFY_SETTAG },
+	{ "set",			IPFY_SET },
 	{ "skip",			IPFY_SKIP },
 	{ "short",			IPFY_SHORT },
 	{ "state",			IPFY_STATE },

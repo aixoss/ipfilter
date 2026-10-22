@@ -1,7 +1,7 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/ip_frag.c 1.5                               */
+/* 71ipfl71c src/ipfl/kernext/ip_frag.c 1.5                               */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
@@ -14,7 +14,7 @@
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)03  1.5  src/ipfl/kernext/ip_frag.c, ipflt, 53ipfl53H, 2330A_53ipfl53H 7/14/23 02:12:48";
+static char sccsid[] = "@(#)03  1.5  src/ipfl/kernext/ip_frag.c, ipflt, 71ipfl71c 7/14/23 02:12:48";
 /*
  * Copyright (C) 1993-2003 by Darren Reed.
  *
@@ -300,9 +300,7 @@ ipfr_t *table[];
 	fr = fin->fin_fr;
 	fra->ipfr_rule = fr;
 	if (fr != NULL) {
-		MUTEX_ENTER(&fr->fr_lock);
-		fr->fr_ref++;
-		MUTEX_EXIT(&fr->fr_lock);
+		ATOMIC_INC32(fr->fr_ref); /* lock-free ref bump */
 	}
 
 	/*
@@ -348,7 +346,9 @@ fr_info_t *fin;
 	if ((fin->fin_v != 4) || (fr_frag_lock != 0))
 		return -1;
 
-	WRITE_ENTER(&ipf_frag);
+	{
+	int _cpu_idx = IPF_PERCPU_IDX_INIT;
+	WRITE_ENTER_PERCPU(&ipf_frag_pcpu, _cpu_idx);
 	fra = ipfr_newfrag(fin, pass, ipfr_heads);
 	if (fra != NULL) {
 		*ipfr_tail = fra;
@@ -358,7 +358,8 @@ fr_info_t *fin;
 			ipfr_list = fra;
 		fra->ipfr_next = NULL;
 	}
-	RWLOCK_EXIT(&ipf_frag);
+	RWLOCK_EXIT_PERCPU(&ipf_frag_pcpu, _cpu_idx);
+	}
 	return fra ? 0 : -1;
 }
 
@@ -629,11 +630,13 @@ u_32_t *passp;
 	frentry_t *fr = NULL;
 	ipfr_t	*fra;
 	u_32_t pass;
+	int ipf_cpu_idx_frag = IPF_PERCPU_IDX_INIT;
 
 	if ((fin->fin_v != 4) || (fr_frag_lock) || (ipfr_list == NULL))
 		return NULL;
 
-	READ_ENTER(&ipf_frag);
+	/* ipf_global_pcpu read lock is already held by fr_check() for the full
+	 * packet lifetime; sub-lock acquisition is skipped here. */
 	fra = fr_fraglookup(fin, ipfr_heads);
 	if (fra != NULL) {
 		fr = fra->ipfr_rule;
@@ -654,7 +657,6 @@ u_32_t *passp;
 			*passp = pass;
 		}
 	}
-	RWLOCK_EXIT(&ipf_frag);
 	return fr;
 }
 
@@ -672,11 +674,14 @@ void *ptr;
 {
 	ipfr_t	*fr;
 
-	WRITE_ENTER(&ipf_frag);
+	{
+	int _cpu_idx = IPF_PERCPU_IDX_INIT;
+	WRITE_ENTER_PERCPU(&ipf_frag_pcpu, _cpu_idx);
 	for (fr = ipfr_list; fr; fr = fr->ipfr_next)
 		if (fr->ipfr_data == ptr)
 			fr->ipfr_data = NULL;
-	RWLOCK_EXIT(&ipf_frag);
+	RWLOCK_EXIT_PERCPU(&ipf_frag_pcpu, _cpu_idx);
+	}
 }
 
 
@@ -747,13 +752,19 @@ void fr_fragclear()
 	ipfr_t	*fra;
 	nat_t	*nat;
 
-	WRITE_ENTER(&ipf_frag);
+	{
+	int _cpu_idx_frag = IPF_PERCPU_IDX_INIT;
+	WRITE_ENTER_PERCPU(&ipf_frag_pcpu, _cpu_idx_frag);
 	while ((fra = ipfr_list) != NULL)
 		fr_fragdelete(fra, &ipfr_tail);
 	ipfr_tail = &ipfr_list;
-	RWLOCK_EXIT(&ipf_frag);
+	RWLOCK_EXIT_PERCPU(&ipf_frag_pcpu, _cpu_idx_frag);
+	}
 
-	WRITE_ENTER(&ipf_nat);
+	{
+	int _cpu_idx_nat = IPF_PERCPU_IDX_INIT;
+	int _cpu_idx_natfrag = IPF_PERCPU_IDX_INIT;
+	WRITE_ENTER_PERCPU(&ipf_nat_pcpu, _cpu_idx_nat);
 	WRITE_ENTER(&ipf_natfrag);
 	while ((fra = ipfr_natlist) != NULL) {
 		nat = fra->ipfr_data;
@@ -765,7 +776,8 @@ void fr_fragclear()
 	}
 	ipfr_nattail = &ipfr_natlist;
 	RWLOCK_EXIT(&ipf_natfrag);
-	RWLOCK_EXIT(&ipf_nat);
+	RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx_nat);
+	}
 }
 
 
@@ -786,7 +798,9 @@ void fr_fragexpire()
 		return;
 
 	SPL_NET(s);
-	WRITE_ENTER(&ipf_frag);
+	{
+	int _cpu_idx = IPF_PERCPU_IDX_INIT;
+	WRITE_ENTER_PERCPU(&ipf_frag_pcpu, _cpu_idx);
 	/*
 	 * Go through the entire table, looking for entries to expire,
 	 * which is indicated by the ttl being less than or equal to fr_ticks.
@@ -798,7 +812,8 @@ void fr_fragexpire()
 		ipfr_stats.ifs_expire++;
 		ipfr_inuse--;
 	}
-	RWLOCK_EXIT(&ipf_frag);
+	RWLOCK_EXIT_PERCPU(&ipf_frag_pcpu, _cpu_idx);
+	}
 
 	WRITE_ENTER(&ipf_ipidfrag);
 	for (fp = &ipfr_ipidlist; ((fra = *fp) != NULL); ) {
@@ -817,7 +832,9 @@ void fr_fragexpire()
 	 * NOTE: We need to grab both mutex's early, and in this order so as
 	 * to prevent a deadlock if both try to expire at the same time.
 	 */
-	WRITE_ENTER(&ipf_nat);
+	{
+	int _cpu_idx_nat = IPF_PERCPU_IDX_INIT;
+	WRITE_ENTER_PERCPU(&ipf_nat_pcpu, _cpu_idx_nat);
 	WRITE_ENTER(&ipf_natfrag);
 	for (fp = &ipfr_natlist; ((fra = *fp) != NULL); ) {
 		if (fra->ipfr_ttl > fr_ticks)
@@ -832,7 +849,8 @@ void fr_fragexpire()
 		ipfr_inuse--;
 	}
 	RWLOCK_EXIT(&ipf_natfrag);
-	RWLOCK_EXIT(&ipf_nat);
+	RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx_nat);
+	}
 	SPL_X(s);
 }
 
@@ -853,10 +871,11 @@ void fr_slowtimer __P((void *ptr))
 int fr_slowtimer()
 # endif
 {
-	READ_ENTER(&ipf_global);
 #if defined (AIX)
 	int ticks;
 #endif
+	int _cpu_idx_global = IPF_PERCPU_IDX_INIT;
+	READ_ENTER_PERCPU(&ipf_global_pcpu, _cpu_idx_global);
 	fr_fragexpire();
 	fr_timeoutstate();
 	fr_natexpire();
@@ -890,7 +909,7 @@ int fr_slowtimer()
 #  endif /* NetBSD */
 # endif
 done:
-	RWLOCK_EXIT(&ipf_global);
+	RWLOCK_EXIT_PERCPU(&ipf_global_pcpu, _cpu_idx_global);
 # if ((BSD < 199103) && !defined(AIX)) || !defined(_KERNEL)
 	return 0;
 # endif

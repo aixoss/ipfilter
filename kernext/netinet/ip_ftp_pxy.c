@@ -1,13 +1,13 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/netinet/ip_ftp_pxy.c 1.1                    */
+/* 71ipfl71c src/ipfl/kernext/netinet/ip_ftp_pxy.c 1.2                    */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006                   */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
@@ -15,7 +15,7 @@
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
 /*
-static char sccsid[] = "@(#)43  1.2  src/ipfl/kernext/netinet/ip_ftp_pxy.c, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/10/06 15:02:41";
+static char sccsid[] = "@(#)43  1.2  src/ipfl/kernext/netinet/ip_ftp_pxy.c, ipflt, 71ipfl71c 5/10/06 15:02:41";
 */
 /*
  * Copyright (C) 1997-2003 by Darren Reed
@@ -396,7 +396,9 @@ int dlen;
 		ipstate_t *is;
 
 		nat_update(&fi, nat2, nat->nat_ptr);
-		READ_ENTER(&ipf_state);
+		{
+		int _cpu_idx = IPF_PERCPU_IDX_INIT;
+		READ_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx);
 		is = nat2->nat_state;
 		if (is != NULL) {
 			MUTEX_ENTER(&is->is_lock);
@@ -404,7 +406,8 @@ int dlen;
 					 is->is_flags);
 			MUTEX_EXIT(&is->is_lock);
 		}
-		RWLOCK_EXIT(&ipf_state);
+		RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
+		}
 	}
 	return APR_INC(inc);
 }
@@ -759,7 +762,9 @@ u_int data_ip;
 		ipstate_t *is;
 
 		nat_update(&fi, nat2, nat->nat_ptr);
-		READ_ENTER(&ipf_state);
+		{
+		int _cpu_idx = IPF_PERCPU_IDX_INIT;
+		READ_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx);
 		is = nat2->nat_state;
 		if (is != NULL) {
 			MUTEX_ENTER(&is->is_lock);
@@ -767,7 +772,8 @@ u_int data_ip;
 					 is->is_flags);
 			MUTEX_EXIT(&is->is_lock);
 		}
-		RWLOCK_EXIT(&ipf_state);
+		RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
+		}
 	}
 	return inc;
 }

@@ -1,7 +1,7 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/fil.c 1.3                                   */
+/* 71ipfl71c src/ipfl/kernext/fil.c 1.3                                   */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
@@ -14,11 +14,17 @@
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)00  1.3  src/ipfl/kernext/fil.c, ipflt, 53ipfl53H 7/12/24 05:56:14";
+static char sccsid[] = "@(#)00  1.3  src/ipfl/kernext/fil.c, ipflt, 71ipfl71c 7/12/24 05:56:14";
 /*
  * Copyright (C) 1993-2003 by Darren Reed.
  *
  * See the IPFILTER.LICENCE file for details on licencing.
+ */
+/*
+ * Copyright 2018 Illumio, Inc. All Rights Reserved.
+ */
+/*
+ * Copyright 2026 Cisco Systems, Inc. All Rights Reserved.
  */
 #if defined(KERNEL) || defined(_KERNEL)
 # undef KERNEL
@@ -168,7 +174,14 @@ extern	int	opts;
 
 
 fr_info_t	frcache[2][8];
-struct	filterstats frstats[2] = { { 0, 0, 0, 0, 0 }, { 0, 0, 0, 0, 0 } };
+/*
+ * Per-CPU statistics array.  Each CPU updates its own [cpu_slot][in/out]
+ * entry without atomics; fr_getstat() and fr_zerostats() operate on all
+ * slots.  Zero-initialised by the compiler (static storage).
+ *
+ * Each CPU slot is cacheline-aligned (128 bytes) to prevent false-sharing.
+ */
+filterstats_t	frstats_pcpu[IPF_MAX_CPUS][2] __attribute__((aligned(128)));
 struct	frentry	*ipfilter[2][2] = { { NULL, NULL }, { NULL, NULL } },
 		*ipfilter6[2][2] = { { NULL, NULL }, { NULL, NULL } },
 		*ipacct6[2][2] = { { NULL, NULL }, { NULL, NULL } },
@@ -228,6 +241,7 @@ int	fr_features = 0
 		| IPF_FEAT_IPV6
 #endif
 	;
+int	ipf_loopback = 0;
 
 static	INLINE int	fr_ipfcheck __P((fr_info_t *, frentry_t *, int));
 static	int		fr_portcheck __P((frpcmp_t *, u_short *));
@@ -1361,13 +1375,16 @@ fr_info_t *fin;
 	 */
 	off &= IP_MF|IP_OFFMASK;
 	if (off != 0) {
+		int morefrag = off & IP_MF;
+
 		fi->fi_flx |= FI_FRAG;
 		off &= IP_OFFMASK;
 		if (off != 0) {
 			fin->fin_flx |= FI_FRAGBODY;
 			off <<= 3;
-			if ((off + fin->fin_dlen > 65535) || 
-			    (fin->fin_dlen == 0) || (fin->fin_dlen & 7)) {
+			if ((off + fin->fin_dlen > 65535) ||
+			    (fin->fin_dlen == 0) ||
+				((morefrag != 0) && ((fin->fin_dlen & 7) != 0))) {
 				/* 
 				 * The length of the packet, starting at its
 				 * offset cannot exceed 65535 (0xffff) as the 
@@ -1864,7 +1881,7 @@ fr_info_t *fin;
 u_32_t pass;
 {
 	int rulen, portcmp, off, logged, skip;
-	struct frentry *fr, *fnext;
+	struct frentry *fr, *fnext, *frs;
 	u_32_t passt, passo;
 
 	/*
@@ -1984,15 +2001,14 @@ u_32_t pass;
 		 * If the function pointer is bad, just make like we ignore
 		 * it, except for increasing the hit counter.
 		 */
+		frs = fin->fin_fr;
 		if ((passt & FR_CALLNOW) != 0) {
-			frentry_t *frs;
 
 			ATOMIC_INC64(fr->fr_hits);
 			if ((fr->fr_func != NULL) &&
 			    (fr->fr_func == (ipfunc_t)-1))
 				continue;
 
-			frs = fin->fin_fr;
 			fin->fin_fr = fr;
 			fr = (*fr->fr_func)(fin, &passt);
 			if (fr == NULL) {
@@ -2013,9 +2029,9 @@ u_32_t pass;
 					passt &= ~FR_CMDMASK;
 					passt |= FR_BLOCK|FR_QUICK;
 				}
-				ATOMIC_INCL(frstats[fin->fin_out].fr_skip);
+				PERCPU_STATS_INCL(fin->fin_global_cpuidx, fin->fin_out, fr_skip);
 			}
-			ATOMIC_INCL(frstats[fin->fin_out].fr_pkl);
+			PERCPU_STATS_INCL(fin->fin_global_cpuidx, fin->fin_out, fr_pkl);
 			logged = 1;
 		}
 #endif /* IPFILTER_LOG */
@@ -2060,10 +2076,11 @@ u_32_t pass;
 
 				fin->fin_fr = fr;
 				if (fr_addstate(fin, NULL, 0) != NULL) {
-					ATOMIC_INCL(frstats[out].fr_ads);
+					PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_ads);
 				} else {
-					ATOMIC_INCL(frstats[out].fr_bads);
+					PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_bads);
 					pass = passo;
+					fin->fin_fr = frs;
 					continue;
 				}
 			}
@@ -2112,7 +2129,7 @@ u_32_t *passp;
 		fin->fin_fr = fr;
 		pass = fr_scanlist(fin, FR_NOMATCH);
 		if (FR_ISACCOUNT(pass)) {
-			ATOMIC_INCL(frstats[0].fr_acct);
+			PERCPU_STATS_INCL(fin->fin_global_cpuidx, 0, fr_acct);
 		}
 		fin->fin_fr = frsave;
 		bcopy(group, fin->fin_group, FR_GROUPLEN);
@@ -2129,7 +2146,7 @@ u_32_t *passp;
 /* Parameters:  fin(I) - pointer to packet information                      */
 /*              passp(IO) - pointer to current/new filter decision (unused) */
 /*                                                                          */
-/* Applies an appropriate set of firewall rules to the packet, to see if    */
+/* Applies an appropriate set of firewall rules to the packet, to see if   */
 /* there are any matches.  The first check is to see if a match can be seen */
 /* in the cache.  If not, then search an appropriate list of rules.  Once a */
 /* matching rule is found, take any appropriate actions as defined by the   */
@@ -2143,6 +2160,7 @@ u_32_t *passp;
 	fr_info_t *fc;
 	u_32_t pass;
 	int out;
+	int ipf_cpu_idx_frcache = IPF_PERCPU_IDX_INIT;
 
 	out = fin->fin_out;
 	pass = *passp;
@@ -2153,22 +2171,21 @@ u_32_t *passp;
 	 * the result as if it were from the ACL's.
 	 */
 	fc = &frcache[out][CACHE_HASH(fin)];
-	READ_ENTER(&ipf_frcache);
+	READ_ENTER_PERCPU(&ipf_frcache_pcpu, ipf_cpu_idx_frcache);
 	if (!bcmp((char *)fin, (char *)fc, FI_CSIZE)) {
 		/*
 		 * copy cached data so we can unlock the mutexes earlier.
 		 */
 		bcopy((char *)fc, (char *)fin, FI_COPYSIZE);
-		RWLOCK_EXIT(&ipf_frcache);
-		ATOMIC_INCL(frstats[out].fr_chit);
+		RWLOCK_EXIT_PERCPU(&ipf_frcache_pcpu, ipf_cpu_idx_frcache);
+		PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_chit);
 
 		if ((fr = fin->fin_fr) != NULL) {
 			ATOMIC_INC64(fr->fr_hits);
 			pass = fr->fr_flags;
 		}
 	} else {
-		RWLOCK_EXIT(&ipf_frcache);
-
+		RWLOCK_EXIT_PERCPU(&ipf_frcache_pcpu, ipf_cpu_idx_frcache);
 #ifdef	USE_INET6
 		if (fin->fin_v == 6)
 			fin->fin_fr = ipfilter6[out][fr_active];
@@ -2180,12 +2197,14 @@ u_32_t *passp;
 
 		if (((pass & FR_KEEPSTATE) == 0) &&
 		    ((fin->fin_flx & FI_DONTCACHE) == 0)) {
-			WRITE_ENTER(&ipf_frcache);
+			WRITE_ENTER_PERCPU(&ipf_frcache_pcpu,
+			    ipf_cpu_idx_frcache);
 			bcopy((char *)fin, (char *)fc, FI_COPYSIZE);
-			RWLOCK_EXIT(&ipf_frcache);
+			RWLOCK_EXIT_PERCPU(&ipf_frcache_pcpu,
+			    ipf_cpu_idx_frcache);
 		}
 		if ((pass & FR_NOMATCH)) {
-			ATOMIC_INCL(frstats[out].fr_nom);
+			PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_nom);
 		}
 		fr = fin->fin_fr;
 	}
@@ -2197,7 +2216,7 @@ u_32_t *passp;
 	    !ppsratecheck(&fr->fr_lastpkt, &fr->fr_curpps, fr->fr_pps)) {
 		pass &= ~(FR_CMDMASK|FR_DUP|FR_RETICMP|FR_RETRST);
 		pass |= FR_BLOCK;
-		ATOMIC_INCL(frstats[out].fr_ppshit);
+		PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_ppshit);
 	}
 
 	/*
@@ -2240,12 +2259,12 @@ u_32_t *passp;
 	if ((pass & (FR_KEEPFRAG|FR_KEEPSTATE)) == FR_KEEPFRAG) {
 		if (fin->fin_flx & FI_FRAG) {
 			if (fr_newfrag(fin, pass) == -1) {
-				ATOMIC_INCL(frstats[out].fr_bnfr);
+				PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_bnfr);
 			} else {
-				ATOMIC_INCL(frstats[out].fr_nfr);
+				PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_nfr);
 			}
 		} else {
-			ATOMIC_INCL(frstats[out].fr_cfr);
+			PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_cfr);
 		}
 	}
 
@@ -2315,6 +2334,13 @@ int out;
 	ip6_t *ip6;
 #endif
 	/*
+	 * Per-CPU lock tracking: stores the CPU slot (for read) or
+	 * IPF_WRITE_SENTINEL (for write) so RWLOCK_EXIT_PERCPU releases the
+	 * correct slot.  Initialised to IPF_PERCPU_IDX_INIT (-1) so
+	 * that a stray exit call before acquire is a no-op in debug builds.
+	 */
+	int ipf_cpu_idx_global  = IPF_PERCPU_IDX_INIT;
+	/*
 	 * The first part of fr_check() deals with making sure that what goes
 	 * into the filtering engine makes some sense.  Information about the
 	 * the packet is distilled, collected into a fr_info_t structure and
@@ -2331,14 +2357,50 @@ int out;
 	SPL_INT(s);
 # endif
 
-	READ_ENTER(&ipf_global);
+	if (!ipf_loopback) {
+		struct ifnet *intf = ifp;
+		if (intf != NULL && intf != ((struct ifnet *)-1) &&
+		    (intf->if_flags & IFF_LOOPBACK)) {
+			return 0;
+		}
+	}
+
+	READ_ENTER_PERCPU(&ipf_global_pcpu, ipf_cpu_idx_global);
 
 	if (fr_running <= 0) {
-		RWLOCK_EXIT(&ipf_global);
+		RWLOCK_EXIT_PERCPU(&ipf_global_pcpu, ipf_cpu_idx_global);
 		return 0;
 	}
 
+	/*
+	 * Fast path: if IPFilter is running but completely unconfigured (no rules,
+	 * no state, no NAT, no auth, no fragment tracking), return the default
+	 * policy immediately.  All flags are read under the ipf_global_pcpu read
+	 * lock held above, so there is no race with iplattach/ipldetach.
+	 */
+#ifdef USE_INET6
+	if (ipfilter[out][fr_active] == NULL &&
+	    ipfilter6[out][fr_active] == NULL &&
+#else
+	if (ipfilter[out][fr_active] == NULL &&
+#endif
+	    fr_state_lock == 0 && fr_nat_lock == 0 &&
+	    fr_auth_lock == 0 && fr_frag_lock == 0) {
+	 /* paired RWLOCK_EXIT_PERCPU for the fast-path early return */
+	 RWLOCK_EXIT_PERCPU(&ipf_global_pcpu, ipf_cpu_idx_global);
+	 return FR_ISPASS(fr_pass) ? 0 : -1;
+	}
+
 	bzero((char *)fin, sizeof(*fin));
+
+	/*
+	 * Store the CPU slot index in fin so that sub-functions
+	 * (fr_firewall, fr_dolog, fr_scanlist) can use PERCPU_STATS_INCL
+	 * without calling mycpu() again.  When PERCPU_LOCK_ENABLE=0,
+	 * READ_ENTER_PERCPU sets ipf_cpu_idx_global=0, so slot [0] is used
+	 * (same as the old single-array behaviour).
+	 */
+	fin->fin_global_cpuidx = ipf_cpu_idx_global;
 
 # ifdef MENTAT
 	if (qpi->qpi_flags & QF_GROUP)
@@ -2381,8 +2443,6 @@ int out;
 #  endif /* CSUM_DELAY_DATA */
 # endif /* MENTAT */
 #else
-	READ_ENTER(&ipf_global);
-
 	bzero((char *)fin, sizeof(*fin));
 	m = *mp;
 #endif /* _KERNEL */
@@ -2403,7 +2463,7 @@ int out;
 
 #ifdef	USE_INET6
 	if (v == 6) {
-		ATOMIC_INCL(frstats[out].fr_ipv6);
+		PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_ipv6);
 		/*
 		 * Jumbo grams are quite likely too big for internal buffer
 		 * structures to handle comfortably, for now, so just drop
@@ -2442,12 +2502,12 @@ int out;
 		if (v == 4) {
 #ifdef _KERNEL
 			if (fr_chksrc && !fr_verifysrc(fin)) {
-				ATOMIC_INCL(frstats[0].fr_badsrc);
+				PERCPU_STATS_INCL(fin->fin_global_cpuidx, 0, fr_badsrc);
 				fin->fin_flx |= FI_BADSRC;
 			}
 #endif
 			if (fin->fin_ip->ip_ttl < fr_minttl) {
-				ATOMIC_INCL(frstats[0].fr_badttl);
+				PERCPU_STATS_INCL(fin->fin_global_cpuidx, 0, fr_badttl);
 				fin->fin_flx |= FI_LOWTTL;
 			}
 		}
@@ -2455,7 +2515,7 @@ int out;
 		else  if (v == 6) {
 			ip6 = (ip6_t *)ip;
 			if (ip6->ip6_hlim < fr_minttl) {
-				ATOMIC_INCL(frstats[0].fr_badttl);
+				PERCPU_STATS_INCL(fin->fin_global_cpuidx, 0, fr_badttl);
 				fin->fin_flx |= FI_LOWTTL;
 			}
 		}
@@ -2463,10 +2523,8 @@ int out;
 	}
 
 	if (fin->fin_flx & FI_SHORT) {
-		ATOMIC_INCL(frstats[out].fr_short);
+		PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_short);
 	}
-
-	READ_ENTER(&ipf_mutex);
 
 	/*
 	 * Check auth now.  This, combined with the check below to see if apass
@@ -2474,11 +2532,12 @@ int out;
 	 * otherwise occur when we reprocess it.  As it is, we only count it
 	 * after it has no auth. table matchup.  This also stops NAT from
 	 * occuring until after the packet has been auth'd.
+	 * Rule-list reads below are protected by ipf_global_pcpu (read-mode),
+	 * held for the entire fr_check() body.
 	 */
 	fr = fr_checkauth(fin, &pass);
 	if (!out) {
 		if (fr_checknatin(fin, &pass) == -1) {
-			RWLOCK_EXIT(&ipf_mutex);
 			goto finished;
 		}
 	}
@@ -2501,9 +2560,9 @@ int out;
 	 */
 	if ((pass & FR_KEEPSTATE) && !(fin->fin_flx & FI_STATE)) {
 		if (fr_addstate(fin, NULL, 0) != NULL) {
-			ATOMIC_INCL(frstats[out].fr_ads);
+			PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_ads);
 		} else {
-			ATOMIC_INCL(frstats[out].fr_bads);
+			PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_bads);
 			if (FR_ISPASS(pass)) {
 				pass &= ~FR_CMDMASK;
 				pass |= FR_BLOCK;
@@ -2521,15 +2580,14 @@ int out;
 		(void) fr_acctpkt(fin, NULL);
 
 		if (fr_checknatout(fin, &pass) == -1) {
-			RWLOCK_EXIT(&ipf_mutex);
 			goto finished;
 		} else if ((fr_update_ipid != 0) && (v == 4)) {
 			if (fr_updateipid(fin) == -1) {
-				ATOMIC_INCL(frstats[1].fr_ipud);
+				PERCPU_STATS_INCL(fin->fin_global_cpuidx, 1, fr_ipud);
 				pass &= ~FR_CMDMASK;
 				pass |= FR_BLOCK;
 			} else {
-				ATOMIC_INCL(frstats[0].fr_ipud);
+				PERCPU_STATS_INCL(fin->fin_global_cpuidx, 0, fr_ipud);
 			}
 		}
 	}
@@ -2551,20 +2609,9 @@ int out;
 	}
 
 	/*
-	 * Up the reference on fr_lock and exit ipf_mutex.  fr_fastroute
-	 * only frees up the lock on ipf_global and the generation of a
-	 * packet below could cause a recursive call into IPFilter.
-	 * Hang onto the filter rule just in case someone decides to remove
-	 * or flush it in the meantime.
+	 * No fr_ref bump needed: ipf_global_pcpu read lock is held until after
+	 * the fr_fastroute/ICMP block below, preventing any writer from freeing fr.
 	 */
-	if (fr != NULL) {
-		MUTEX_ENTER(&fr->fr_lock);
-		fr->fr_ref++;
-		MUTEX_EXIT(&fr->fr_lock);
-	}
-
-	RWLOCK_EXIT(&ipf_mutex);
-
 	if ((pass & FR_RETMASK) != 0) {
 		/*
 		 * Should we return an ICMP packet to indicate error
@@ -2583,12 +2630,12 @@ int out;
 				else
 					dst = 0;
 				(void) fr_send_icmp_err(ICMP_UNREACH, fin, dst);
-				ATOMIC_INCL(frstats[0].fr_ret);
+				PERCPU_STATS_INCL(fin->fin_global_cpuidx, 0, fr_ret);
 			} else if (((pass & FR_RETMASK) == FR_RETRST) &&
 				   !(fin->fin_flx & FI_SHORT)) {
 				if (((fin->fin_flx & FI_OOW) != 0) ||
 				    (fr_send_reset(fin) == 0)) {
-					ATOMIC_INCL(frstats[1].fr_ret);
+					PERCPU_STATS_INCL(fin->fin_global_cpuidx, 1, fr_ret);
 				}
 			}
 
@@ -2640,18 +2687,18 @@ int out;
 				(void) fr_fastroute(mc, &mc, fin, &fr->fr_dif);
 		}
 
-		(void) fr_derefrule(&fr);
+		/* fr_derefrule not needed: no ref bump was taken (lock held throughout) */
 	}
 
 finished:
 	if (!FR_ISPASS(pass)) {
-		ATOMIC_INCL(frstats[out].fr_block);
+		PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_block);
 		if (*mp != NULL) {
 			FREE_MB_T(*mp);
 			m = *mp = NULL;
 		}
 	} else {
-		ATOMIC_INCL(frstats[out].fr_pass);
+		PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_pass);
 #if defined(_KERNEL) && defined(__sgi)
 		if ((fin->fin_hbuf != NULL) &&
 		    (mtod(fin->fin_m, struct ip *) != fin->fin_ip)) {
@@ -2661,7 +2708,8 @@ finished:
 	}
 
 	SPL_X(s);
-	RWLOCK_EXIT(&ipf_global);
+	/* paired RWLOCK_EXIT_PERCPU for fr_check() */
+	RWLOCK_EXIT_PERCPU(&ipf_global_pcpu, ipf_cpu_idx_global);
 
 #ifdef _KERNEL
 # if OpenBSD >= 200311
@@ -2705,7 +2753,6 @@ finished:
 #endif /* _KERNEL */
 }
 
-
 #ifdef	IPFILTER_LOG
 /* ------------------------------------------------------------------------ */
 /* Function:    fr_dolog                                                    */
@@ -2728,22 +2775,22 @@ u_32_t *passp;
 
 	if ((fr_flags & FF_LOGNOMATCH) && (pass & FR_NOMATCH)) {
 		pass |= FF_LOGNOMATCH;
-		ATOMIC_INCL(frstats[out].fr_npkl);
+		PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_npkl);
 		goto logit;
 	} else if (((pass & FR_LOGMASK) == FR_LOGP) ||
 	    (FR_ISPASS(pass) && (fr_flags & FF_LOGPASS))) {
 		if ((pass & FR_LOGMASK) != FR_LOGP)
 			pass |= FF_LOGPASS;
-		ATOMIC_INCL(frstats[out].fr_ppkl);
+		PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_ppkl);
 		goto logit;
 	} else if (((pass & FR_LOGMASK) == FR_LOGB) ||
 		   (FR_ISBLOCK(pass) && (fr_flags & FF_LOGBLOCK))) {
 		if ((pass & FR_LOGMASK) != FR_LOGB)
 			pass |= FF_LOGBLOCK;
-		ATOMIC_INCL(frstats[out].fr_bpkl);
+		PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_bpkl);
 logit:
 		if (ipflog(fin, pass) == -1) {
-			ATOMIC_INCL(frstats[out].fr_skip);
+			PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_skip);
 
 			/*
 			 * If the "or-block" option has been used then
@@ -3391,7 +3438,7 @@ minor_t unit;
 int *nfreedp;
 frentry_t **listp;
 {
-	int freed = 0;
+	int freed = 0, i;
 	frentry_t *fp;
 
 	while ((fp = *listp) != NULL) {
@@ -3402,7 +3449,8 @@ frentry_t **listp;
 		}
 		*listp = fp->fr_next;
 		if (fp->fr_grp != NULL) {
-			(void) frflushlist(set, unit, nfreedp, fp->fr_grp);
+			i = frflushlist(set, unit, nfreedp, fp->fr_grp);
+			fp->fr_ref -= i;
 		}
 
 		if (fp->fr_grhead != NULL) {
@@ -3435,7 +3483,12 @@ int proto, flags;
 {
 	int flushed = 0, set;
 
-	WRITE_ENTER(&ipf_mutex);
+	/* frflush takes the global write lock; must be called at INTBASE */
+	IPF_ASSERT_INTBASE("frflush entry");
+
+	{
+	int _cpu_idx = IPF_PERCPU_IDX_INIT;
+	WRITE_ENTER_PERCPU(&ipf_global_pcpu, _cpu_idx);
 	bzero((char *)frcache, sizeof(frcache));
 
 	set = fr_active;
@@ -3448,13 +3501,13 @@ int proto, flags;
 			    &flushed, &ipfilter6[1][set]);
 			(void) frflushlist(set, unit,
 			    &flushed, &ipacct6[1][set]);
-		}
+			}
 		if (proto == 0 || proto == 4) {
 			(void) frflushlist(set, unit,
 			    &flushed, &ipfilter[1][set]);
 			(void) frflushlist(set, unit,
 			    &flushed, &ipacct[1][set]);
-		}
+			}
 	}
 	if (flags & FR_INQUE) {
 		if (proto == 0 || proto == 6) {
@@ -3462,15 +3515,16 @@ int proto, flags;
 			    &flushed, &ipfilter6[0][set]);
 			(void) frflushlist(set, unit,
 			    &flushed, &ipacct6[0][set]);
-		}
+			}
 		if (proto == 0 || proto == 4) {
 			(void) frflushlist(set, unit,
 			    &flushed, &ipfilter[0][set]);
 			(void) frflushlist(set, unit,
 			    &flushed, &ipacct[0][set]);
-		}
+			}
 	}
-	RWLOCK_EXIT(&ipf_mutex);
+	RWLOCK_EXIT_PERCPU_IOCTL(&ipf_global_pcpu, _cpu_idx);
+	}
 
 	if (unit == IPL_LOGIPF) {
 		int tmp;
@@ -3710,7 +3764,9 @@ void *ifp;
 	fr_statesync(ifp);
 # endif
 
-	WRITE_ENTER(&ipf_mutex);
+	{
+	int _cpu_idx = IPF_PERCPU_IDX_INIT;
+	WRITE_ENTER_PERCPU(&ipf_global_pcpu, _cpu_idx);
 	frsynclist(ipacct[0][fr_active], ifp);
 	frsynclist(ipacct[1][fr_active], ifp);
 	frsynclist(ipfilter[0][fr_active], ifp);
@@ -3728,7 +3784,8 @@ void *ifp;
 		for (g = ipfgroups[i][1]; g != NULL; g = g->fg_next)
 			frsynclist(g->fg_start, ifp);
 	}
-	RWLOCK_EXIT(&ipf_mutex);
+	RWLOCK_EXIT_PERCPU_IOCTL(&ipf_global_pcpu, _cpu_idx);
+	}
 }
 
 
@@ -3826,7 +3883,65 @@ friostat_t *fiop;
 {
 	int i, j;
 
-	bcopy((char *)frstats, (char *)fiop->f_st, sizeof(filterstats_t) * 2);
+	{
+		int _i;
+		bzero((char *)fiop->f_st, sizeof(fiop->f_st));
+		for (_i = 0; _i < IPF_MAX_CPUS; _i++) {
+			fiop->f_st[0].fr_pass    += frstats_pcpu[_i][0].fr_pass;
+			fiop->f_st[0].fr_block   += frstats_pcpu[_i][0].fr_block;
+			fiop->f_st[0].fr_nom     += frstats_pcpu[_i][0].fr_nom;
+			fiop->f_st[0].fr_short   += frstats_pcpu[_i][0].fr_short;
+			fiop->f_st[0].fr_ppkl    += frstats_pcpu[_i][0].fr_ppkl;
+			fiop->f_st[0].fr_bpkl    += frstats_pcpu[_i][0].fr_bpkl;
+			fiop->f_st[0].fr_npkl    += frstats_pcpu[_i][0].fr_npkl;
+			fiop->f_st[0].fr_pkl     += frstats_pcpu[_i][0].fr_pkl;
+			fiop->f_st[0].fr_skip    += frstats_pcpu[_i][0].fr_skip;
+			fiop->f_st[0].fr_ret     += frstats_pcpu[_i][0].fr_ret;
+			fiop->f_st[0].fr_acct    += frstats_pcpu[_i][0].fr_acct;
+			fiop->f_st[0].fr_bnfr    += frstats_pcpu[_i][0].fr_bnfr;
+			fiop->f_st[0].fr_nfr     += frstats_pcpu[_i][0].fr_nfr;
+			fiop->f_st[0].fr_cfr     += frstats_pcpu[_i][0].fr_cfr;
+			fiop->f_st[0].fr_bads    += frstats_pcpu[_i][0].fr_bads;
+			fiop->f_st[0].fr_ads     += frstats_pcpu[_i][0].fr_ads;
+			fiop->f_st[0].fr_chit    += frstats_pcpu[_i][0].fr_chit;
+			fiop->f_st[0].fr_tcpbad  += frstats_pcpu[_i][0].fr_tcpbad;
+			fiop->f_st[0].fr_pull[0] += frstats_pcpu[_i][0].fr_pull[0];
+			fiop->f_st[0].fr_pull[1] += frstats_pcpu[_i][0].fr_pull[1];
+			fiop->f_st[0].fr_badsrc  += frstats_pcpu[_i][0].fr_badsrc;
+			fiop->f_st[0].fr_badttl  += frstats_pcpu[_i][0].fr_badttl;
+			fiop->f_st[0].fr_bad     += frstats_pcpu[_i][0].fr_bad;
+			fiop->f_st[0].fr_ipv6    += frstats_pcpu[_i][0].fr_ipv6;
+			fiop->f_st[0].fr_ppshit  += frstats_pcpu[_i][0].fr_ppshit;
+			fiop->f_st[0].fr_ipud    += frstats_pcpu[_i][0].fr_ipud;
+
+			fiop->f_st[1].fr_pass    += frstats_pcpu[_i][1].fr_pass;
+			fiop->f_st[1].fr_block   += frstats_pcpu[_i][1].fr_block;
+			fiop->f_st[1].fr_nom     += frstats_pcpu[_i][1].fr_nom;
+			fiop->f_st[1].fr_short   += frstats_pcpu[_i][1].fr_short;
+			fiop->f_st[1].fr_ppkl    += frstats_pcpu[_i][1].fr_ppkl;
+			fiop->f_st[1].fr_bpkl    += frstats_pcpu[_i][1].fr_bpkl;
+			fiop->f_st[1].fr_npkl    += frstats_pcpu[_i][1].fr_npkl;
+			fiop->f_st[1].fr_pkl     += frstats_pcpu[_i][1].fr_pkl;
+			fiop->f_st[1].fr_skip    += frstats_pcpu[_i][1].fr_skip;
+			fiop->f_st[1].fr_ret     += frstats_pcpu[_i][1].fr_ret;
+			fiop->f_st[1].fr_acct    += frstats_pcpu[_i][1].fr_acct;
+			fiop->f_st[1].fr_bnfr    += frstats_pcpu[_i][1].fr_bnfr;
+			fiop->f_st[1].fr_nfr     += frstats_pcpu[_i][1].fr_nfr;
+			fiop->f_st[1].fr_cfr     += frstats_pcpu[_i][1].fr_cfr;
+			fiop->f_st[1].fr_bads    += frstats_pcpu[_i][1].fr_bads;
+			fiop->f_st[1].fr_ads     += frstats_pcpu[_i][1].fr_ads;
+			fiop->f_st[1].fr_chit    += frstats_pcpu[_i][1].fr_chit;
+			fiop->f_st[1].fr_tcpbad  += frstats_pcpu[_i][1].fr_tcpbad;
+			fiop->f_st[1].fr_pull[0] += frstats_pcpu[_i][1].fr_pull[0];
+			fiop->f_st[1].fr_pull[1] += frstats_pcpu[_i][1].fr_pull[1];
+			fiop->f_st[1].fr_badsrc  += frstats_pcpu[_i][1].fr_badsrc;
+			fiop->f_st[1].fr_badttl  += frstats_pcpu[_i][1].fr_badttl;
+			fiop->f_st[1].fr_bad     += frstats_pcpu[_i][1].fr_bad;
+			fiop->f_st[1].fr_ipv6    += frstats_pcpu[_i][1].fr_ipv6;
+			fiop->f_st[1].fr_ppshit  += frstats_pcpu[_i][1].fr_ppshit;
+			fiop->f_st[1].fr_ipud    += frstats_pcpu[_i][1].fr_ipud;
+		}
+	}
 	fiop->f_locks[IPL_LOGSTATE] = fr_state_lock;
 	fiop->f_locks[IPL_LOGNAT] = fr_nat_lock;
 	fiop->f_locks[IPL_LOGIPF] = fr_frag_lock;
@@ -3987,7 +4102,9 @@ lookupfunc_t *funcptr;
 	(void) sprintf(name, "%u", number);
 #endif
 
-	READ_ENTER(&ip_poolrw);
+	int _cpu_idx_pool = IPF_PERCPU_IDX_INIT;
+
+	READ_ENTER_PERCPU(&ip_pool_pcpu, _cpu_idx_pool);
 
 	switch (type)
 	{
@@ -4017,7 +4134,7 @@ lookupfunc_t *funcptr;
 		*funcptr = NULL;
 		break;
 	}
-	RWLOCK_EXIT(&ip_poolrw);
+	RWLOCK_EXIT_PERCPU(&ip_pool_pcpu, _cpu_idx_pool);
 
 	return ptr;
 }
@@ -4053,6 +4170,9 @@ caddr_t data;
 	u_int *p, *pp;
 	frgroup_t *fg;
 	char *group;
+
+	/* Assert that ioctl callers enter at INTBASE (enabled by -DIPFDEBUG). */
+	IPF_ASSERT_INTBASE("frrequest entry");
 
 	fg = NULL;
 	fp = &frd;
@@ -4185,8 +4305,9 @@ caddr_t data;
 			return ENOMEM;
 		}
 		fp->fr_data = ptr;
-	} else
+	} else {
 		fp->fr_data = NULL;
+	}
 
 	/*
 	 * Perform per-rule type sanity checks of their members.
@@ -4299,8 +4420,9 @@ caddr_t data;
 	pp = (u_int *)(fp->fr_caddr + fp->fr_dsize);
 	for (p = (u_int *)fp->fr_data; p < pp; p++)
 		fp->fr_cksum += *p;
-
-	WRITE_ENTER(&ipf_mutex);
+	{
+	int _cpu_idx = IPF_PERCPU_IDX_INIT;
+	WRITE_ENTER_PERCPU(&ipf_global_pcpu, _cpu_idx);
 	bzero((char *)frcache, sizeof(frcache));
 
 	for (; (f = *ftail) != NULL; ftail = &f->fr_next) {
@@ -4354,7 +4476,9 @@ caddr_t data;
 		if ((ptr != NULL) && (makecopy != 0)) {
 			KFREES(ptr, fp->fr_dsize);
 		}
-		RWLOCK_EXIT(&ipf_mutex);
+		RWLOCK_EXIT_PERCPU_IOCTL(&ipf_global_pcpu, _cpu_idx);
+
+		IPF_ASSERT_INTBASE("frrequest post-unlock (SIOCZRLST path)");
 		return error;
 	}
 
@@ -4438,6 +4562,8 @@ caddr_t data;
 			    (f->fr_isc != (struct ipscan *)-1))
 				ipsc_detachfr(f);
 #endif
+			if ((fg != NULL) && (fg->fg_head != NULL))
+				fg->fg_head->fr_ref--;
 			if (unit == IPL_LOGAUTH) {
 				error = fr_preauthcmd(req, f, ftail);
 				goto done;
@@ -4476,9 +4602,10 @@ caddr_t data;
 			} else
 				f = fp;
 			if (f != NULL) {
+				if (fg != NULL && fg->fg_head != NULL)
+					fg->fg_head->fr_ref++;
 				if (fp != f)
-					bcopy((char *)fp, (char *)f,
-					      sizeof(*f));
+					bcopy((char *)fp, (char *)f, sizeof(*f));
 				MUTEX_NUKE(&f->fr_lock);
 				MUTEX_INIT(&f->fr_lock, "filter rule lock");
 #ifdef	IPFILTER_SCAN
@@ -4487,6 +4614,7 @@ caddr_t data;
 					f->fr_isc = (struct ipscan *)-1;
 #endif
 				f->fr_hits = 0;
+				f->fr_bytes = 0;
 				if (makecopy != 0)
 					f->fr_ref = 1;
 				f->fr_next = *ftail;
@@ -4507,7 +4635,10 @@ caddr_t data;
 		}
 	}
 done:
-	RWLOCK_EXIT(&ipf_mutex);
+	RWLOCK_EXIT_PERCPU_IOCTL(&ipf_global_pcpu, _cpu_idx);
+
+	IPF_ASSERT_INTBASE("frrequest post-unlock (main path)");
+	}
 	if ((ptr != NULL) && (error != 0) && (makecopy != 0)) {
 		KFREES(ptr, fp->fr_dsize);
 	}
@@ -4943,6 +5074,12 @@ ipftqent_t *tqe;
 	ipftq_t *ifq;
 
 	ifq = tqe->tqe_ifq;
+	/*
+	 * tqe_ifq is set to NULL by the first call for this entry.  Guard
+	 * against a concurrent double-delete racing is_ref to 0.
+	 */
+	if (ifq == NULL)
+		return;
 
 	MUTEX_ENTER(&ifq->ifq_lock);
 
@@ -5882,6 +6019,9 @@ ipftuneable_t ipf_tuneables[] = {
 			sizeof(ipfr_size),		IPFT_WRDISABLED },
 	{ { &fr_ipfrttl },	"fr_ipfrttl",		1,	0x7fffffff,
 			sizeof(fr_ipfrttl),		IPFT_WRDISABLED },
+	{ { &ipf_loopback },	"ipf_loopback",		0,	1,
+			sizeof(ipf_loopback),		IPFT_RDONLY },
+
 #ifdef IPFILTER_LOG
 	/* log */
 	{ { &ipl_suppress },	"ipl_suppress",		0,	1,
@@ -6313,9 +6453,12 @@ caddr_t	data;
 	if (error)
 		return EFAULT;
 
-	WRITE_ENTER(&ipf_mutex);
-	bzero((char *)frstats, sizeof(*frstats) * 2);
-	RWLOCK_EXIT(&ipf_mutex);
+	{
+	int _cpu_idx = IPF_PERCPU_IDX_INIT;
+	WRITE_ENTER_PERCPU(&ipf_global_pcpu, _cpu_idx);
+	bzero((char *)frstats_pcpu, sizeof(frstats_pcpu));
+	RWLOCK_EXIT_PERCPU_IOCTL(&ipf_global_pcpu, _cpu_idx);
+	}
 
 	return 0;
 }

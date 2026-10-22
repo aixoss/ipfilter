@@ -1,7 +1,7 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/ip_nat.c 1.5                                */
+/* 71ipfl71c src/ipfl/kernext/ip_nat.c 1.5                                */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
@@ -14,7 +14,7 @@
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)07  1.5  src/ipfl/kernext/ip_nat.c, ipflt, 53ipfl53H, 1617A_53ipfl53H 4/1/16 04:58:38";
+static char sccsid[] = "@(#)07  1.5  src/ipfl/kernext/ip_nat.c, ipflt, 71ipfl71c 4/1/16 04:58:38";
 /*
  * Copyright (C) 1995-2003 by Darren Reed.
  *
@@ -774,9 +774,10 @@ int mode;
 	case SIOCGNATL :
 	    {
 		natlookup_t nl;
+		int _cpu_idx = IPF_PERCPU_IDX_INIT;
 
 		if (getlock) {
-			READ_ENTER(&ipf_nat);
+			READ_ENTER_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 		}
 		error = fr_inobj(data, &nl, IPFOBJ_NATLOOKUP);
 		if (error == 0) {
@@ -787,17 +788,19 @@ int mode;
 			}
 		}
 		if (getlock) {
-			RWLOCK_EXIT(&ipf_nat);
+			RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 		}
 		break;
 	    }
 	case SIOCIPFFL :	/* old SIOCFLNAT & SIOCCNATL */
+	    {
+		int _cpu_idx = IPF_PERCPU_IDX_INIT;
 		if (!(mode & FWRITE)) {
 			error = EPERM;
 			break;
 		}
 		if (getlock) {
-			WRITE_ENTER(&ipf_nat);
+			WRITE_ENTER_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 		}
 		error = 0;
 		if (arg == 0)
@@ -807,12 +810,13 @@ int mode;
 		else
 			error = EINVAL;
 		if (getlock) {
-			RWLOCK_EXIT(&ipf_nat);
+			RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 		}
 		if (error == 0) {
 			BCOPYOUT(&ret, data, sizeof(ret));
 		}
 		break;
+		   }
 	case SIOCPROXY :
 		error = appr_ioctl(data, cmd, mode);
 		break;
@@ -832,24 +836,26 @@ int mode;
 		break;
 	case SIOCSTGSZ :
 		if (fr_nat_lock) {
+			int _cpu_idx = IPF_PERCPU_IDX_INIT;
 			if (getlock) {
-				READ_ENTER(&ipf_nat);
+				READ_ENTER_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 			}
 			error = fr_natgetsz(data);
 			if (getlock) {
-				RWLOCK_EXIT(&ipf_nat);
+				RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 			}
 		} else
 			error = EACCES;
 		break;
 	case SIOCSTGET :
 		if (fr_nat_lock) {
+			int _cpu_idx = IPF_PERCPU_IDX_INIT;
 			if (getlock) {
-				READ_ENTER(&ipf_nat);
+				READ_ENTER_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 			}
 			error = fr_natgetent(data);
 			if (getlock) {
-				RWLOCK_EXIT(&ipf_nat);
+				RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 			}
 		} else
 			error = EACCES;
@@ -967,8 +973,10 @@ int getlock;
 
 	/* Otherwise, these fields are preset */
 
+	{
+	int _cpu_idx_addnat = IPF_PERCPU_IDX_INIT;
 	if (getlock) {
-		WRITE_ENTER(&ipf_nat);
+		WRITE_ENTER_PERCPU(&ipf_nat_pcpu, _cpu_idx_addnat);
 	}
 	n->in_next = NULL;
 	*np = n;
@@ -993,7 +1001,8 @@ int getlock;
 	pfil_delayed_copy = 0;
 #endif
 	if (getlock) {
-		RWLOCK_EXIT(&ipf_nat);			/* WRITE */
+		RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx_addnat);	/* WRITE */
+	}
 	}
 
 	return error;
@@ -1048,8 +1057,10 @@ static void nat_siocdelnat(n, np, getlock)
 ipnat_t *n, **np;
 int getlock;
 {
+	{
+	int _cpu_idx_delnat = IPF_PERCPU_IDX_INIT;
 	if (getlock) {
-		WRITE_ENTER(&ipf_nat);
+		WRITE_ENTER_PERCPU(&ipf_nat_pcpu, _cpu_idx_delnat);
 	}
 	if (n->in_redir & NAT_REDIRECT)
 		nat_delrdr(n);
@@ -1088,7 +1099,8 @@ int getlock;
 		n->in_next = NULL;
 	}
 	if (getlock) {
-		RWLOCK_EXIT(&ipf_nat);			/* READ/WRITE */
+		RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx_delnat);	/* READ/WRITE */
+	}
 	}
 }
 
@@ -1374,30 +1386,32 @@ int getlock;
 	fin.fin_p = nat->nat_p;
 	fin.fin_ifp = nat->nat_ifps[0];
 	if (nat->nat_dir == NAT_OUTBOUND) {
+		int _cpu_idx = IPF_PERCPU_IDX_INIT;
 		fin.fin_data[0] = ntohs(nat->nat_oport);
 		fin.fin_data[1] = ntohs(nat->nat_outport);
 		if (getlock) {
-			READ_ENTER(&ipf_nat);
+			READ_ENTER_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 		}
 		n = nat_inlookup(&fin, nat->nat_flags, fin.fin_p,
 				 nat->nat_oip, nat->nat_inip);
 		if (getlock) {
-			RWLOCK_EXIT(&ipf_nat);
+			RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 		}
 		if (n != NULL) {
 			error = EEXIST;
 			goto junkput;
 		}
 	} else if (nat->nat_dir == NAT_INBOUND) {
+		int _cpu_idx = IPF_PERCPU_IDX_INIT;
 		fin.fin_data[0] = ntohs(nat->nat_outport);
 		fin.fin_data[1] = ntohs(nat->nat_oport);
 		if (getlock) {
-			READ_ENTER(&ipf_nat);
+			READ_ENTER_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 		}
 		n = nat_outlookup(&fin, nat->nat_flags, fin.fin_p,
 				  nat->nat_outip, nat->nat_oip);
 		if (getlock) {
-			RWLOCK_EXIT(&ipf_nat);
+			RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 		}
 		if (n != NULL) {
 			error = EEXIST;
@@ -1469,20 +1483,19 @@ int getlock;
 			MUTEX_NUKE(&fr->fr_lock);
 			MUTEX_INIT(&fr->fr_lock, "nat-filter rule lock");
 		} else {
+			int _cpu_idx = IPF_PERCPU_IDX_INIT;
 			if (getlock) {
-				READ_ENTER(&ipf_nat);
+				READ_ENTER_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 			}
 			for (n = nat_instances; n; n = n->nat_next)
 				if (n->nat_fr == fr)
 					break;
 
 			if (n != NULL) {
-				MUTEX_ENTER(&fr->fr_lock);
-				fr->fr_ref++;
-				MUTEX_EXIT(&fr->fr_lock);
+				ATOMIC_INC32(fr->fr_ref); /* lock-free ref bump */
 			}
 			if (getlock) {
-				RWLOCK_EXIT(&ipf_nat);
+				RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 			}
 
 			if (!n) {
@@ -1497,8 +1510,10 @@ int getlock;
 		ipnn = NULL;
 	}
 
+	{
+	int _cpu_idx = IPF_PERCPU_IDX_INIT;
 	if (getlock) {
-		WRITE_ENTER(&ipf_nat);
+		WRITE_ENTER_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 	}
 	error = nat_insert(nat, nat->nat_rev);
 	if ((error == 0) && (aps != NULL)) {
@@ -1506,7 +1521,8 @@ int getlock;
 		ap_sess_list = aps;
 	}
 	if (getlock) {
-		RWLOCK_EXIT(&ipf_nat);
+		RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx);
+	}
 	}
 
 	if (error == 0)
@@ -2444,9 +2460,7 @@ int direction;
 		fr = fin->fin_fr;
 		nat->nat_fr = fr;
 		if (fr != NULL) {
-			MUTEX_ENTER(&fr->fr_lock);
-			fr->fr_ref++;
-			MUTEX_EXIT(&fr->fr_lock);
+			ATOMIC_INC32(fr->fr_ref); /* lock-free ref bump */
 		}
 		return 0;
 	}
@@ -3050,6 +3064,7 @@ struct in_addr src , mapdst;
 	u_32_t dst;
 	void *ifp;
 	u_int hv;
+	int _cpu_idx_nat = IPF_PERCPU_IDX_INIT;
 
 	ifp = fin->fin_ifp;
 	sport = 0;
@@ -3125,9 +3140,11 @@ struct in_addr src , mapdst;
 			}
 
 			ipn = nat->nat_ptr;
-			if ((ipn != NULL) && (nat->nat_aps != NULL))
+			if ((ipn != NULL) && (nat->nat_aps != NULL)) {
 				if (appr_match(fin, nat) != 0)
 					continue;
+				_cpu_idx_nat = fin->fin_nat_cpuidx;
+			}
 			return nat;
 		}
 	}
@@ -3145,12 +3162,12 @@ find_in_wild_ports:
 	if (nat_stats.ns_wilds == 0)
 		return NULL;
 
-	RWLOCK_EXIT(&ipf_nat);
+	RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx_nat);
 
 	hv = NAT_HASH_FN(dst, 0, 0xffffffff);
 	hv = NAT_HASH_FN(src.s_addr, hv, ipf_nattable_sz);
 
-	WRITE_ENTER(&ipf_nat);
+	WRITE_ENTER_PERCPU(&ipf_nat_pcpu, _cpu_idx_nat);
 
 	nat = nat_table[1][hv];
 	for (; nat; nat = nat->nat_hnext[1]) {
@@ -3191,7 +3208,7 @@ find_in_wild_ports:
 		}
 	}
 
-	MUTEX_DOWNGRADE(&ipf_nat);
+	MUTEX_DOWNGRADE_PERCPU(&ipf_nat_pcpu, _cpu_idx_nat);
 
 	return nat;
 }
@@ -3294,6 +3311,7 @@ struct in_addr src , dst;
 	int nflags;
 	void *ifp;
 	u_int hv;
+	int _cpu_idx_nat = IPF_PERCPU_IDX_INIT;
 
 	ifp = fin->fin_ifp;
 	srcip = src.s_addr;
@@ -3357,9 +3375,11 @@ struct in_addr src , dst;
 			}
 
 			ipn = nat->nat_ptr;
-			if ((ipn != NULL) && (nat->nat_aps != NULL))
+			if ((ipn != NULL) && (nat->nat_aps != NULL)) {
 				if (appr_match(fin, nat) != 0)
 					continue;
+				_cpu_idx_nat = fin->fin_nat_cpuidx;
+			}
 			return nat;
 		}
 	}
@@ -3377,12 +3397,12 @@ find_out_wild_ports:
 	if (nat_stats.ns_wilds == 0)
 		return NULL;
 
-	RWLOCK_EXIT(&ipf_nat);
+	RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx_nat);
 
 	hv = NAT_HASH_FN(srcip, 0, 0xffffffff);
 	hv = NAT_HASH_FN(dst.s_addr, hv, ipf_nattable_sz);
 
-	WRITE_ENTER(&ipf_nat);
+	WRITE_ENTER_PERCPU(&ipf_nat_pcpu, _cpu_idx_nat);
 
 	nat = nat_table[0][hv];
 	for (; nat; nat = nat->nat_hnext[0]) {
@@ -3425,7 +3445,7 @@ find_out_wild_ports:
 		}
 	}
 
-	MUTEX_DOWNGRADE(&ipf_nat);
+	MUTEX_DOWNGRADE_PERCPU(&ipf_nat_pcpu, _cpu_idx_nat);
 
 	return nat;
 }
@@ -3650,6 +3670,7 @@ u_32_t *passp;
 	int natadd = 1;
 	frentry_t *fr;
 	nat_t *nat;
+	int ipf_cpu_idx_nat = IPF_PERCPU_IDX_INIT;
 
 	if (nat_stats.ns_rules == 0 || fr_nat_lock != 0)
 		return 0;
@@ -3691,7 +3712,12 @@ u_32_t *passp;
 
 	ipa = fin->fin_saddr;
 
-	READ_ENTER(&ipf_nat);
+	/* ipf_global_pcpu is already held read-mode by fr_check() for the
+	 * packet's lifetime; initial sub-lock acquisition is skipped.
+	 * The write-upgrade path (new NAT entry creation) still acquires
+	 * ipf_nat_pcpu write-mode, and RWLOCK_EXIT_PERCPU handles both
+	 * the no-lock (IPF_PERCPU_IDX_INIT) and write (IPF_WRITE_SENTINEL) cases. */
+	fin->fin_nat_cpuidx = ipf_cpu_idx_nat;
 
 	if ((fin->fin_p == IPPROTO_ICMP) && !(nflags & IPN_ICMPQUERY) &&
 	    (nat = nat_icmperror(fin, &nflags, NAT_OUTBOUND)))
@@ -3708,10 +3734,10 @@ u_32_t *passp;
 		 * If there is no current entry in the nat table for this IP#,
 		 * create one for it (if there is a matching rule).
 		 */
-		RWLOCK_EXIT(&ipf_nat);
+		RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, ipf_cpu_idx_nat);
+		WRITE_ENTER_PERCPU(&ipf_nat_pcpu, ipf_cpu_idx_nat);
 		msk = 0xffffffff;
 		nmsk = nat_masks;
-		WRITE_ENTER(&ipf_nat);
 maskloop:
 		iph = ipa & htonl(msk);
 		hv = NAT_HASH_FN(iph, 0, ipf_natrules_sz);
@@ -3762,20 +3788,23 @@ maskloop:
 				goto maskloop;
 			}
 		}
-		MUTEX_DOWNGRADE(&ipf_nat);
+		MUTEX_DOWNGRADE_PERCPU(&ipf_nat_pcpu, ipf_cpu_idx_nat);
 	}
 
 	if (nat != NULL) {
 		rval = fr_natout(fin, nat, natadd, nflags);
 		if (rval == 1) {
-			MUTEX_ENTER(&nat->nat_lock);
-			nat->nat_ref++;
-			MUTEX_EXIT(&nat->nat_lock);
+			ATOMIC_INC32(nat->nat_ref); /* lock-free ref bump */
 			fin->fin_nat = nat;
 		}
 	} else
 		rval = natfailed;
-	RWLOCK_EXIT(&ipf_nat);
+	/*
+	 * Release the NAT lock.  RWLOCK_EXIT_PERCPU handles both the per-CPU
+	 * read case (0..IPF_MAX_CPUS-2) and the write case (IPF_WRITE_SENTINEL).
+	 */
+	/* Unconditional exit handles both no-lock and write-lock cases. */
+	RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, ipf_cpu_idx_nat);
 
 	if (rval == -1) {
 		if (passp != NULL)
@@ -3817,10 +3846,9 @@ u_32_t nflags;
 	if ((natadd != 0) && (fin->fin_flx & FI_FRAG) && (np != NULL))
 		(void) fr_nat_newfrag(fin, 0, nat);
 
-	MUTEX_ENTER(&nat->nat_lock);
-	nat->nat_bytes[1] += fin->fin_plen;
-	nat->nat_pkts[1]++;
-	MUTEX_EXIT(&nat->nat_lock);
+	/* counter updates are atomic: no lock needed */
+	ATOMIC_ADD64(nat->nat_bytes[1], fin->fin_plen);
+	ATOMIC_INC32(nat->nat_pkts[1]);
 
 	/*
 	 * Fix up checksums, not by recalculating them, but
@@ -3948,6 +3976,7 @@ u_32_t *passp;
 	ipnat_t *np;
 	nat_t *nat;
 	u_32_t iph;
+	int ipf_cpu_idx_nat = IPF_PERCPU_IDX_INIT;
 
 	if (nat_stats.ns_rules == 0 || fr_nat_lock != 0)
 		return 0;
@@ -3992,7 +4021,10 @@ u_32_t *passp;
 
 	in = fin->fin_dst;
 
-	READ_ENTER(&ipf_nat);
+	/* Same as fr_checknatout: ipf_global_pcpu already held; initial
+	 * sub-lock acquisition skipped; write upgrade still acquires
+	 * ipf_nat_pcpu for new entry creation. */
+	fin->fin_nat_cpuidx = ipf_cpu_idx_nat;
 
 	if ((fin->fin_p == IPPROTO_ICMP) && !(nflags & IPN_ICMPQUERY) &&
 	    (nat = nat_icmperror(fin, &nflags, NAT_INBOUND)))
@@ -4005,10 +4037,10 @@ u_32_t *passp;
 	} else {
 		u_32_t hv, msk, rmsk;
 
-		RWLOCK_EXIT(&ipf_nat);
+		RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, ipf_cpu_idx_nat);
+		WRITE_ENTER_PERCPU(&ipf_nat_pcpu, ipf_cpu_idx_nat);
 		rmsk = rdr_masks;
 		msk = 0xffffffff;
-		WRITE_ENTER(&ipf_nat);
 		/*
 		 * If there is no current entry in the nat table for this IP#,
 		 * create one for it (if there is a matching rule).
@@ -4063,20 +4095,18 @@ maskloop:
 				goto maskloop;
 			}
 		}
-		MUTEX_DOWNGRADE(&ipf_nat);
+		MUTEX_DOWNGRADE_PERCPU(&ipf_nat_pcpu, ipf_cpu_idx_nat);
 	}
 	if (nat != NULL) {
 		rval = fr_natin(fin, nat, natadd, nflags);
 		if (rval == 1) {
-			MUTEX_ENTER(&nat->nat_lock);
-			nat->nat_ref++;
-			MUTEX_EXIT(&nat->nat_lock);
+			ATOMIC_INC32(nat->nat_ref); /* lock-free ref bump */
 			fin->fin_nat = nat;
 			fin->fin_state = nat->nat_state;
 		}
 	} else
 		rval = natfailed;
-	RWLOCK_EXIT(&ipf_nat);
+	RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, ipf_cpu_idx_nat);
 
 	if (rval == -1) {
 		if (passp != NULL)
@@ -4142,10 +4172,9 @@ u_32_t nflags;
 	ipfsync_update(SMC_NAT, fin, nat->nat_sync);
 #endif
 
-	MUTEX_ENTER(&nat->nat_lock);
-	nat->nat_bytes[0] += fin->fin_plen;
-	nat->nat_pkts[0]++;
-	MUTEX_EXIT(&nat->nat_lock);
+	/* counter updates are atomic: no lock needed */
+	ATOMIC_ADD64(nat->nat_bytes[0], fin->fin_plen);
+	ATOMIC_INC32(nat->nat_pkts[0]);
 
 	fin->fin_ip->ip_dst = nat->nat_inip;
 	fin->fin_fi.fi_daddr = nat->nat_inip.s_addr;
@@ -4366,8 +4395,10 @@ void fr_natexpire()
 	int i;
 	SPL_INT(s);
 
+	{
+	int _cpu_idx = IPF_PERCPU_IDX_INIT;
 	SPL_NET(s);
-	WRITE_ENTER(&ipf_nat);
+	WRITE_ENTER_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 	for (ifq = nat_tqb, i = 0; ifq != NULL; ifq = ifq->ifq_next) {
 		for (tqn = ifq->ifq_head; ((tqe = tqn) != NULL); i++) {
 			if (tqe->tqe_die > fr_ticks)
@@ -4399,7 +4430,8 @@ void fr_natexpire()
 		}
 	}
 
-	RWLOCK_EXIT(&ipf_nat);
+	RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx);
+	}
 	SPL_X(s);
 }
 
@@ -4431,11 +4463,13 @@ void *ifp;
 	 * which will get changed are those which are "map ... -> 0/32",
 	 * where the rule specifies the address is taken from the interface.
 	 */
+	{
+	int _cpu_idx = IPF_PERCPU_IDX_INIT;
 	SPL_NET(s);
-	WRITE_ENTER(&ipf_nat);
+	WRITE_ENTER_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 
 	if (fr_running <= 0) {
-		RWLOCK_EXIT(&ipf_nat);
+		RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 		return;
 	}
 
@@ -4489,7 +4523,8 @@ void *ifp;
 		if ((ifp == NULL) || (n->in_ifps[1] == ifp))
 			n->in_ifps[1] = fr_resolvenic(n->in_ifnames[1], 4);
 	}
-	RWLOCK_EXIT(&ipf_nat);
+	RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx);
+	}
 	SPL_X(s);
 }
 
@@ -4622,11 +4657,14 @@ nat_t **natp;
 
 	nat = *natp;
 	*natp = NULL;
-	WRITE_ENTER(&ipf_nat);
+	{
+	int _cpu_idx = IPF_PERCPU_IDX_INIT;
+	WRITE_ENTER_PERCPU(&ipf_nat_pcpu, _cpu_idx);
 	nat->nat_ref--;
 	if (nat->nat_ref == 0)
 		nat_delete(nat, NL_EXPIRE);
-	RWLOCK_EXIT(&ipf_nat);
+	RWLOCK_EXIT_PERCPU(&ipf_nat_pcpu, _cpu_idx);
+	}
 }
 
 
@@ -4682,9 +4720,7 @@ nat_t *nat;
 	}
 	fr = clone->nat_fr;
 	if (fr != NULL) {
-		MUTEX_ENTER(&fr->fr_lock);
-		fr->fr_ref++;
-		MUTEX_EXIT(&fr->fr_lock);
+		ATOMIC_INC32(fr->fr_ref); /* lock-free ref bump */
 	}
 
 	/*

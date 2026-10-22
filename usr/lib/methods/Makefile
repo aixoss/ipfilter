@@ -1,14 +1,14 @@
-# @(#)57  1.1  src/ipfl/usr/lib/methods/Makefile, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/8/06 07:32:16
+# @(#)57  1.1  src/ipfl/usr/lib/methods/Makefile, ipflt, 71ipfl71c 5/8/06 07:32:16
 # IBM_PROLOG_BEGIN_TAG 
 # This is an automatically generated prolog. 
 #  
-# 53ipfl53H src/ipfl/usr/lib/methods/Makefile 1.1 
+# 71ipfl71c src/ipfl/usr/lib/methods/Makefile 1.2 
 #  
 # Licensed Materials - Property of IBM 
 #  
 # Restricted Materials of IBM 
 #  
-# (C) COPYRIGHT International Business Machines Corp. 2006 
+# COPYRIGHT International Business Machines Corp. 2006,2025 
 # All Rights Reserved 
 #  
 # US Government Users Restricted Rights - Use, duplication or 
@@ -27,7 +27,7 @@ ILIST = ${PROGRAMS}
 IDIR = /usr/lib/methods/
 
 INCFLAGS = -I${MAKETOP}/ipfl/kernext -I${MAKETOP}/ipfl/kernext/netinet
-CFLAGS = -D_ALL_SOURCE -D_KERNEL -D_AIX -D_AIX51 -DAIX
+CFLAGS = -D_ALL_SOURCE -D_AIX -D_AIX51 -DAIX
 LIBS = -lodm -lcfg -lrts
 
 .include<${RULES_MK}>

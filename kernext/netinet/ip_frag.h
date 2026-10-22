@@ -1,7 +1,7 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/netinet/ip_frag.h 1.3                       */
+/* 71ipfl71c src/ipfl/kernext/netinet/ip_frag.h 1.3                       */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
@@ -14,7 +14,7 @@
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-/* @(#)22  1.3  src/ipfl/kernext/netinet/ip_frag.h, ipflt, 53ipfl53H, 0813A_53ipfl53H 1/16/07 05:17:11 */
+/* @(#)22  1.3  src/ipfl/kernext/netinet/ip_frag.h, ipflt, 71ipfl71c 1/16/07 05:17:11 */
 /*
  * Copyright (C) 1993-2001 by Darren Reed.
  *

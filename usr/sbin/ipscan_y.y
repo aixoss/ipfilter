@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/usr/sbin/ipscan_y.y 1.3                             */
+/* 71ipfl71c src/ipfl/usr/sbin/ipscan_y.y 1.3                             */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006                   */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-/* @(#)73  1.3  src/ipfl/usr/sbin/ipscan_y.y, ipflt, 53ipfl53H, 0624A_53ipfl53H 6/13/06 18:41:08 */
+/* @(#)73  1.3  src/ipfl/usr/sbin/ipscan_y.y, ipflt, 71ipfl71c 6/13/06 18:41:08 */
 %{
 #include <sys/types.h>
 #include <sys/ioctl.h>

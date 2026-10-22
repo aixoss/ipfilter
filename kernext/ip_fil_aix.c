@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/ip_fil_aix.c 1.7                            */
+/* 71ipfl71c src/ipfl/kernext/ip_fil_aix.c 1.8                            */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* COPYRIGHT International Business Machines Corp. 2006,2016              */
+/* COPYRIGHT International Business Machines Corp. 2006,2026              */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)02  1.7  src/ipfl/kernext/ip_fil_aix.c, ipflt, 53ipfl53H, 1737A_53ipfl53H 11/4/16 03:27:55";
+static char sccsid[] = "@(#)02  1.8  src/ipfl/kernext/ip_fil_aix.c, ipflt, 71ipfl71c, 2613A_71ipfl71c 2/25/26 03:45:07";
 /*
  * Copyright (C) 1993-2003 by Darren Reed.
  *
@@ -47,6 +47,7 @@ static const char rcsid[] = "@(#)$Id: ip_fil_aix.c,v 2.1.2.2 2006/03/25 13:03:00
 #include <sys/socket.h>
 #include <sys/device.h>
 #include <sys/timer.h>
+#include <sys/inline.h>
 #include <net/if.h>
 #include <net/route.h>
 #include <netinet/in.h>
@@ -115,8 +116,9 @@ static int ipfr_fastroute6 __P((struct mbuf *, struct mbuf **,
 void fr_check_inbound __P((struct ifnet *, struct mbuf *, inbound_fw_args_t *));
 int fr_check_outbound __P((struct ifnet *, struct mbuf *, outbound_fw_args_t *));
 #endif
-extern (*ip_fltr_in_hook)(struct mbuf **, void **) ;
-extern (*ip_fltr_out_hook)(struct ifnet *, struct mbuf **, int, struct ifnet *);int ipf_fltr_in __P((struct mbuf **, void**));
+extern int (*ip_fltr_in_hook)(struct mbuf **, void **) ;
+extern int (*ip_fltr_out_hook)(struct ifnet *, struct mbuf **, int, struct ifnet *);
+int ipf_fltr_in __P((struct mbuf **, void**));
 int ipf_fltr_out __P((struct ifnet *, struct mbuf **, int, struct ifnet *));
 
 int ipfopen __P((dev_t, u_long, chan_t, int));
@@ -128,31 +130,51 @@ int ipfconfig __P((dev_t, int, struct uio *));
 
 ipfmutex_t	ipl_mutex, ipf_authmx, ipf_rw, ipf_stinsert;
 ipfmutex_t	ipf_nat_new, ipf_natio, ipf_timeoutlock;
-ipfrwlock_t	ipf_mutex, ipf_global, ipf_ipidfrag;
+ipfrwlock_t	ipf_mutex, ipf_ipidfrag;
 ipfrwlock_t	ipf_frag, ipf_state, ipf_nat, ipf_natfrag, ipf_auth;
 ipfrwlock_t	ipf_frcache;
 int		ipf_locks_done = 0;
 
+/*
+ * Per-CPU shadow locks for the six rwlocks acquired read-mode on every
+ * packet.  ipfrwlock_percpu_t holds an array of IPF_MAX_CPUS per-CPU
+ * DRW locks; readers lock only their own CPU slot, eliminating the
+ * shared reader-count cacheline contention.
+ *
+ * ipf_global_pcpu is the lifecycle guard: fr_check() and fr_slowtimer()
+ * hold it read-mode for their entire duration; ipldetach() acquires it
+ * write-mode to drain all in-flight callers before destroying locks.
+ *
+ * Each struct is cacheline-aligned (128 bytes) to eliminate false-sharing
+ * between adjacent per-CPU lock structures.
+ */
+ipfrwlock_percpu_t	ipf_global_pcpu  __attribute__((aligned(128)));
+ipfrwlock_percpu_t	ipf_frcache_pcpu __attribute__((aligned(128)));
+ipfrwlock_percpu_t	ipf_state_pcpu   __attribute__((aligned(128)));
+ipfrwlock_percpu_t	ipf_nat_pcpu     __attribute__((aligned(128)));
+ipfrwlock_percpu_t	ipf_frag_pcpu    __attribute__((aligned(128)));
+ipfrwlock_percpu_t	ip_pool_pcpu     __attribute__((aligned(128)));
+
 const struct devsw ipfdevsw  = {
-        ipfopen,	/* d_open	entry point for open routine */
-        ipfclose,	/* d_close	entry point for close routine */
-        ipfread,	/* d_read	entry point for read routine */
-        ipfwrite,	/* d_write	entry point for write routine */
-        ipfioctl,	/* d_ioctl	entry point for ioctl routine */
-        nodev,		/* d_strategy	entry point for strategy routine */
-        NULL, 		/* d_ttys	pointer to tty device structure */
-        nodev,		/* d_select	entry point for select routine */
-        ipfconfig,	/* d_config	entry point for config routine */
-        nodev,		/* d_print	entry point for print routine */
-        nodev,		/* d_dump	entry point for dump routine */
-        nodev,		/* d_mpx	entry point for mpx routine */
-        nodev,		/* d_revoke	entry point for revoke routine */
-        NULL,		/* d_dsdptr     pointer to device specific data */
-        0,		/* d_selptr	ptr to outstanding select cntl blks */
+	ipfopen,	/* d_open	entry point for open routine */
+	ipfclose,	/* d_close	entry point for close routine */
+	ipfread,	/* d_read	entry point for read routine */
+	ipfwrite,	/* d_write	entry point for write routine */
+	ipfioctl,	/* d_ioctl	entry point for ioctl routine */
+	nodev,		/* d_strategy	entry point for strategy routine */
+	NULL, 		/* d_ttys	pointer to tty device structure */
+	nodev,		/* d_select	entry point for select routine */
+	ipfconfig,	/* d_config	entry point for config routine */
+	nodev,		/* d_print	entry point for print routine */
+	nodev,		/* d_dump	entry point for dump routine */
+	nodev,		/* d_mpx	entry point for mpx routine */
+	nodev,		/* d_revoke	entry point for revoke routine */
+	NULL,		/* d_dsdptr     pointer to device specific data */
+	0,		/* d_selptr	ptr to outstanding select cntl blks */
 #ifdef __64BIT_KERNEL
 	DEV_MPSAFE | DEV_64BIT
 #else
-        0		/* d_opts	internal device switch control field */
+	0		/* d_opts	internal device switch control field */
 #endif
 
 };
@@ -276,7 +298,16 @@ int ipfattach()
 	bzero((char *)frcache, sizeof(frcache));
 	MUTEX_INIT(&ipf_rw, "ipf rw mutex");
 	MUTEX_INIT(&ipf_timeoutlock, "ipf timeout lock mutex");
+	RWLOCK_INIT(&ipf_mutex,    "ipf core rwlock");
+	RWLOCK_INIT(&ipf_frcache,  "ipf cache rwlock");
 	RWLOCK_INIT(&ipf_ipidfrag, "ipf IP NAT-Frag rwlock");
+	/* Per-CPU shadow locks for the hot read paths. */
+	RWLOCK_INIT_PERCPU(&ipf_global_pcpu,  "ipf global rwlock percpu");
+	RWLOCK_INIT_PERCPU(&ipf_frcache_pcpu, "ipf cache rwlock percpu");
+	RWLOCK_INIT_PERCPU(&ipf_state_pcpu,   "ipf state rwlock percpu");
+	RWLOCK_INIT_PERCPU(&ipf_nat_pcpu,     "ipf nat rwlock percpu");
+	RWLOCK_INIT_PERCPU(&ipf_frag_pcpu,    "ipf frag rwlock percpu");
+	RWLOCK_INIT_PERCPU(&ip_pool_pcpu,     "ip pool rwlock percpu");
 	ipf_locks_done = 1;
 
 	if (fr_initialise() < 0) {
@@ -298,10 +329,8 @@ int ipfattach()
 
 	SPL_X(s);
 #if defined(AIX)
-	READ_ENTER(&ipf_global);
 	ticks = (hz / IPF_HZ_DIVIDE) * IPF_HZ_MULT;
 	rc = ipfl_start_timer(ticks);
-	RWLOCK_EXIT(&ipf_global);
 	return rc;
 #else
 	rc = timeoutcf(2);
@@ -373,8 +402,43 @@ int ipldetach()
 	if (fr_control_forwarding & 2)
 		ipforwarding = 0;
 
-	fr_deinitialise();
 	fr_running = -1;
+
+	/*
+	 * Quiesce all in-flight fr_check() and fr_slowtimer() calls BEFORE
+	 * calling fr_deinitialise().  Both hold ipf_global_pcpu in READ mode
+	 * for their entire duration.  Acquiring WRITE mode here blocks until
+	 * every in-flight reader has fully exited -- including any thread that
+	 * incremented is->is_ref inside fr_checkstate() and stored the pointer
+	 * in fin->fin_state.
+	 *
+	 * Without this ordering a thread that bumped is_ref races with
+	 * fr_stateunload(): fr_delstate() sets tqe_ifq=NULL while the other
+	 * thread still holds is_ref>0, then that thread's fr_statederef()
+	 * calls fr_delstate() a second time on the same entry, hitting
+	 * fr_deletequeueentry() with tqe_ifq==NULL -> kernel panic at
+	 * fr_deletequeueentry+0x2C (stw r3,8(r30), r30=NULL).
+	 */
+	{
+		int _cpu_idx = IPF_PERCPU_IDX_INIT;
+		WRITE_ENTER_PERCPU(&ipf_global_pcpu, _cpu_idx);
+		RWLOCK_EXIT_PERCPU_IOCTL(&ipf_global_pcpu, _cpu_idx);
+	}
+
+	fr_deinitialise();
+
+	/* Destroy per-CPU shadow locks before the underlying single locks. */
+	RW_DESTROY_PERCPU(&ipf_global_pcpu);
+	RW_DESTROY_PERCPU(&ipf_frag_pcpu);
+	RW_DESTROY_PERCPU(&ipf_nat_pcpu);
+	RW_DESTROY_PERCPU(&ipf_state_pcpu);
+	RW_DESTROY_PERCPU(&ipf_frcache_pcpu);
+	RW_DESTROY_PERCPU(&ip_pool_pcpu);
+	RW_DESTROY(&ipf_frcache);
+	RW_DESTROY(&ipf_mutex);
+	RW_DESTROY(&ipf_ipidfrag);
+	MUTEX_DESTROY(&ipf_timeoutlock);
+	MUTEX_DESTROY(&ipf_rw);
 
 	SPL_X(s);
 	return 0;
@@ -388,15 +452,15 @@ int ipf_fltr_in(m_pp, args)
 struct mbuf **m_pp;
 void **args;
 {
-        struct mbuf *m = *m_pp;
-        struct ip *ip;
-        struct ifnet *ifp;
-        int rc;
+	struct mbuf *m = *m_pp;
+	struct ip *ip;
+	struct ifnet *ifp;
+	int rc;
 
-        ip = mtod(m, struct ip *);
-        ifp = m->m_pkthdr.rcvif;
+	ip = mtod(m, struct ip *);
+	ifp = m->m_pkthdr.rcvif;
 
-        return(fr_check (ip, ip->ip_hl << 2, ifp, 0, m_pp));
+	return(fr_check (ip, ip->ip_hl << 2, ifp, 0, m_pp));
 }
 
 
@@ -409,12 +473,12 @@ struct mbuf **mp;
 int flags;
 struct ifnet *args;
 {
-        /* struct mbuf *m = *mp; */
-        struct ip *ip;
+	/* struct mbuf *m = *mp; */
+	struct ip *ip;
 
-        ip = mtod(*mp, struct ip *);
+	ip = mtod(*mp, struct ip *);
 
-        return(fr_check (ip, ip->ip_hl << 2, ifp, 1, mp));
+	return(fr_check (ip, ip->ip_hl << 2, ifp, 1, mp));
 }
 
 #if 0
@@ -605,6 +669,11 @@ int mode;
 
 	error = fr_ioctlswitch(unit, data, cmd, mode);
 	if (error != -1) {
+		/*
+		 * Assert INTBASE before returning (enabled by -DIPFDEBUG).
+		 * A sub-ioctl handler may have leaked an i_disable().
+		 */
+		IPF_ASSERT_INTBASE("ipfioctl exit (ioctlswitch path)");
 		SPL_X(s);
 		return error;
 	}
@@ -642,6 +711,14 @@ int mode;
 					fr_running = -1;
 			}
 	                unlockl(&ipf_cfglock);
+		}
+		break;
+	case SIOCIPFLP :
+		if (!(mode & FWRITE))
+			error = EPERM;
+		else {
+			BCOPYIN(data, &tmp, sizeof(tmp));
+			ipf_loopback = !!tmp;
 		}
 		break;
 	case SIOCIPFSET :
@@ -750,6 +827,8 @@ int mode;
 		error = EINVAL;
 		break;
 	}
+	/* Assert INTBASE on ioctl return (enabled by -DIPFDEBUG). */
+	IPF_ASSERT_INTBASE("ipfioctl exit");
 	SPL_X(s);
 	return error;
 }
@@ -760,8 +839,9 @@ void fr_forgetifp(ifp)
 void *ifp;
 {
 	register frentry_t *f;
+	int _cpu_idx = IPF_PERCPU_IDX_INIT;
 
-	WRITE_ENTER(&ipf_mutex);
+	WRITE_ENTER_PERCPU(&ipf_global_pcpu, _cpu_idx);
 	for (f = ipacct[0][fr_active]; (f != NULL); f = f->fr_next)
 		if (f->fr_ifa == ifp)
 			f->fr_ifa = (void *)-1;
@@ -788,7 +868,7 @@ void *ifp;
 		if (f->fr_ifa == ifp)
 			f->fr_ifa = (void *)-1;
 #endif
-	RWLOCK_EXIT(&ipf_mutex);
+	RWLOCK_EXIT_PERCPU_IOCTL(&ipf_global_pcpu, _cpu_idx);
 	fr_natsync(ifp);
 }
 #endif
@@ -1899,13 +1979,13 @@ int len;
 		*fin->fin_mp = m;
 		fin->fin_m = m;
 		if (m == NULL) {
-			ATOMIC_INCL(frstats[out].fr_pull[1]);
+			PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_pull[1]);
 			return NULL;
 		}
 		ip = MTOD(m, char *) + ipoff;
 	}
 
-	ATOMIC_INCL(frstats[out].fr_pull[0]);
+	PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_pull[0]);
 	fin->fin_ip = (ip_t *)ip;
 	if (fin->fin_dp != NULL)
 		fin->fin_dp = (char *)fin->fin_ip + dpoff;

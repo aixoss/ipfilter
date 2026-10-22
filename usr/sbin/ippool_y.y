@@ -1,7 +1,7 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/usr/sbin/ippool_y.y 1.3                             */
+/* 71ipfl71c src/ipfl/usr/sbin/ippool_y.y 1.3                             */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
@@ -14,7 +14,10 @@
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-/* @(#)72  1.3  src/ipfl/usr/sbin/ippool_y.y, ipflt, 53ipfl53H, 2226A_53ipfl53H 4/22/22 03:58:11 */
+/* @(#)72  1.3  src/ipfl/usr/sbin/ippool_y.y, ipflt, 71ipfl71c 4/22/22 03:58:11 */
+/*
+ * Copyright 2018 Illumio, Inc. All Rights Reserved.
+ */
 %{
 #include <sys/types.h>
 #include <sys/time.h>
@@ -225,7 +228,7 @@ hashopts:
 
 addrlist:
 	next				{ $$ = NULL; }
-	| range next addrlist		{ $1->ipn_next = $3; $$ = $1; }
+	| addrlist range next		{ $2->ipn_next = $1; $$ = $2; }
 	| range next			{ $$ = $1; }
 	;
 

@@ -1,14 +1,14 @@
-# @(#)56  1.1  src/ipfl/usr/lib/Makefile, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/8/06 07:32:14
+# @(#)56  1.1  src/ipfl/usr/lib/Makefile, ipflt, 71ipfl71c 5/8/06 07:32:14
 # IBM_PROLOG_BEGIN_TAG 
 # This is an automatically generated prolog. 
 #  
-# 53ipfl53H src/ipfl/usr/lib/Makefile 1.1 
+# 71ipfl71c src/ipfl/usr/lib/Makefile 1.2 
 #  
 # Licensed Materials - Property of IBM 
 #  
 # Restricted Materials of IBM 
 #  
-# (C) COPYRIGHT International Business Machines Corp. 2006 
+# COPYRIGHT International Business Machines Corp. 2006,2025 
 # All Rights Reserved 
 #  
 # US Government Users Restricted Rights - Use, duplication or 
@@ -27,7 +27,7 @@ CFLAGS = -D_AIX -D_AIX51 -DAIX -qlanglvl=ansi
 OFILES = addicmp.o addipopt.o bcopywrap.o \
      binprint.o buildopts.o checkrev.o count6bits.o count4bits.o \
      debug.o extras.o facpri.o flags.o fill6bits.o genmask.o \
-     gethost.o getifname.o getline.o getnattype.o getport.o \
+     gethost.o getifname.o getnattype.o getport.o \
      getportproto.o getproto.o getsumd.o hexdump.o hostmask.o \
      hostname.o hostnum.o icmpcode.o inet_addr.o initparse.o \
      ionames.o ipoptsec.o ipf_dotuning.o ipft_ef.o ipft_hx.o \

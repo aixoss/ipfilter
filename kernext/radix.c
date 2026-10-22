@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/radix.c 1.1                                 */
+/* 71ipfl71c src/ipfl/kernext/radix.c 1.1                                 */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006                   */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)14  1.1  src/ipfl/kernext/radix.c, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/8/06 07:26:48";
+static char sccsid[] = "@(#)14  1.1  src/ipfl/kernext/radix.c, ipflt, 71ipfl71c 5/8/06 07:26:48";
 /*
  * Copyright (c) 1988, 1989, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -41,6 +41,9 @@ static char sccsid[] = "@(#)14  1.1  src/ipfl/kernext/radix.c, ipflt, 53ipfl53H,
  * SUCH DAMAGE.
  *
  *	@(#)radix.c	8.6 (Berkeley) 10/17/95
+ */
+/*
+ * Copyright 2026 Cisco Systems, Inc. All Rights Reserved.
  */
 
 /*
@@ -118,9 +121,9 @@ static char *rn_zeros = NULL, *rn_ones = NULL;
 #undef Bcmp
 #define Bcmp(a, b, l) (l == 0 ? 0 : bcmp((caddr_t)(a), (caddr_t)(b), (u_long)l))
 
-static int rn_satisfies_leaf __P((char *, struct radix_node *, int));
-static int rn_lexobetter __P((void *, void *));
-static struct radix_mask *rn_new_radix_mask __P((struct radix_node *,
+int rn_satisfies_leaf __P((char *, struct radix_node *, int));
+int rn_lexobetter __P((void *, void *));
+struct radix_mask *rn_new_radix_mask __P((struct radix_node *,
     struct radix_mask *));
 static int rn_freenode __P((struct radix_node *, void *));
 #if defined(AIX) && !defined(_KERNEL)
@@ -247,7 +250,7 @@ rn_lookup(v_arg, m_arg, head)
 	return x;
 }
 
-static int
+int
 rn_satisfies_leaf(trial, leaf, skip)
 	char *trial;
 	struct radix_node *leaf;
@@ -561,7 +564,7 @@ rn_addmask(n_arg, search, skip)
 	return (x);
 }
 
-static int	/* XXX: arbitrary ordering for non-contiguous masks */
+int	/* XXX: arbitrary ordering for non-contiguous masks */
 rn_lexobetter(m_arg, n_arg)
 	void *m_arg, *n_arg;
 {
@@ -576,7 +579,7 @@ rn_lexobetter(m_arg, n_arg)
 	return 0;
 }
 
-static struct radix_mask *
+struct radix_mask *
 rn_new_radix_mask(tt, next)
 	struct radix_node *tt;
 	struct radix_mask *next;

@@ -1,7 +1,7 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/ip_log.c 1.4                                */
+/* 71ipfl71c src/ipfl/kernext/ip_log.c 1.4                                */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
@@ -14,7 +14,7 @@
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)05  1.4  src/ipfl/kernext/ip_log.c, ipflt, 53ipfl53H, 1537A_53ipfl53H 3/28/15 05:51:06";
+static char sccsid[] = "@(#)05  1.4  src/ipfl/kernext/ip_log.c, ipflt, 71ipfl71c 3/28/15 05:51:06";
 /*
  * Copyright (C) 1997-2003 by Darren Reed.
  *
@@ -476,20 +476,12 @@ int *types, cnt;
 	 * check that we have space to record this information and can
 	 * allocate that much.
 	 */
+	if ((iplused[dev] + len) > ipl_logsize) {
+		return -1;
+	}
 	KMALLOCS(buf, caddr_t, len);
 	if (buf == NULL)
 		return -1;
-	SPL_NET(s);
-	MUTEX_ENTER(&ipl_mutex);
-	if ((iplused[dev] + len) > ipl_logsize) {
-		MUTEX_EXIT(&ipl_mutex);
-		SPL_X(s);
-		KFREES(buf, len);
-		return -1;
-	}
-	iplused[dev] += len;
-	MUTEX_EXIT(&ipl_mutex);
-	SPL_X(s);
 
 	/*
 	 * advance the log pointer to the next empty record and deduct the
@@ -523,9 +515,16 @@ int *types, cnt;
 	}
 	SPL_NET(s);
 	MUTEX_ENTER(&ipl_mutex);
+	if ((iplused[dev] + len) > ipl_logsize) {
+	    MUTEX_EXIT(&ipl_mutex);
+	    SPL_X(s);
+		KFREES(buf, len);
+		return -1;
+	}
 	ipll[dev] = ipl;
 	*iplh[dev] = ipl;
 	iplh[dev] = &ipl->ipl_next;
+	iplused[dev] += len;
 
 	/*
 	 * Now that the log record has been completed and added to the queue,

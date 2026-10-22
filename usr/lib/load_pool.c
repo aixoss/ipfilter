@@ -1,26 +1,29 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/usr/lib/load_pool.c 1.1                             */
+/* 71ipfl71c src/ipfl/usr/lib/load_pool.c 1.1                             */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006                   */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)43  1.1  src/ipfl/usr/lib/load_pool.c, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/8/06 07:25:24";
+static char sccsid[] = "@(#)43  1.1  src/ipfl/usr/lib/load_pool.c, ipflt, 71ipfl71c 5/8/06 07:25:24";
 /*
  * Copyright (C) 2002 by Darren Reed.
  *
  * See the IPFILTER.LICENCE file for details on licencing.
  *
  * $Id: load_pool.c,v 1.14.2.3 2005/11/13 15:41:13 darrenr Exp $
+ */
+/*
+ * Copyright 2026 Cisco Systems, Inc. All Rights Reserved.
  */
 
 #include <fcntl.h>
@@ -59,8 +62,13 @@ ioctlfunc_t iocfunc;
 	if ((opts & OPT_REMOVE) == 0) {
 		if ((*iocfunc)(poolfd, SIOCLOOKUPADDTABLE, &op))
 			if ((opts & OPT_DONOTHING) == 0) {
-				perror("load_pool:SIOCLOOKUPADDTABLE");
-				return -1;
+				if (errno == EEXIST) {
+					fprintf(stderr, "Warning load_pool : Pool %s already exists\n", op.iplo_name);
+					return errno;
+				} else {
+					perror("load_pool:SIOCLOOKUPADDTABLE");
+					return -1;
+				}
 			}
 	}
 
@@ -79,8 +87,16 @@ ioctlfunc_t iocfunc;
 	if ((opts & OPT_REMOVE) != 0) {
 		if ((*iocfunc)(poolfd, SIOCLOOKUPDELTABLE, &op))
 			if ((opts & OPT_DONOTHING) == 0) {
-				perror("load_pool:SIOCLOOKUPDELTABLE");
-				return -1;
+				if (errno == EBUSY) {
+					fprintf(stderr,"Warning load_pool : Pool %s still used\n", op.iplo_name);
+					return errno;
+				} else if (errno == ESRCH) {
+					fprintf(stderr,"Warning load_pool : Pool %s does not exist\n", op.iplo_name);
+					return errno;
+				} else {
+					perror("load_pool:SIOCLOOKUPDELTABLE");
+					return -1;
+				}
 			}
 	}
 	return 0;

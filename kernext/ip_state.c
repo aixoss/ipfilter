@@ -1,7 +1,7 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/ip_state.c 1.4                              */
+/* 71ipfl71c src/ipfl/kernext/ip_state.c 1.4                              */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
@@ -14,11 +14,14 @@
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)11  1.4  src/ipfl/kernext/ip_state.c, ipflt, 53ipfl53H, 1016A_53ipfl53H 4/20/10 12:16:08";
+static char sccsid[] = "@(#)11  1.4  src/ipfl/kernext/ip_state.c, ipflt, 71ipfl71c 4/20/10 12:16:08";
 /*
  * Copyright (C) 1995-2003 by Darren Reed.
  *
  * See the IPFILTER.LICENCE file for details on licencing.
+ */
+/*
+ * Copyright 2026 Cisco Systems, Inc. All Rights Reserved.
  */
 #if defined(KERNEL) || defined(_KERNEL)
 # undef KERNEL
@@ -138,7 +141,7 @@ ips_stat_t ips_stats;
 static ipstate_t *fr_checkicmp6matchingstate __P((fr_info_t *));
 #endif
 static ipstate_t *fr_matchsrcdst __P((fr_info_t *, ipstate_t *, i6addr_t *,
-				      i6addr_t *, tcphdr_t *, u_32_t));
+			      i6addr_t *, tcphdr_t *, u_32_t));
 static ipstate_t *fr_checkicmpmatchingstate __P((fr_info_t *));
 static int fr_state_flush __P((int, int));
 static ips_stat_t *fr_statetstats __P((void));
@@ -174,7 +177,7 @@ int	fr_statemax = IPSTATE_MAX,
 	fr_statesize = IPSTATE_SIZE;
 int	fr_state_doflush = 0,
 	fr_state_lock = 0,
-	fr_state_maxbucket = 0,
+	fr_state_maxbucket = IPSTATE_MAXBUCKET,
 	fr_state_maxbucket_reset = 1,
 	fr_state_init = 0;
 ipftq_t	ips_tqtqb[IPF_TCP_NSTATES],
@@ -395,6 +398,55 @@ static ips_stat_t *fr_statetstats()
 }
 
 /* ------------------------------------------------------------------------ */
+/* Function:    fr_state_cmp                                                */
+/* Returns:     int - 0 == equal, != 0 == different                         */
+/* Parameters:  st1(I) - pointer to state structure                         */
+/*              st2(I) - pointer to state structure                         */
+/*                                                                          */
+/* Compare two state structures and return whether they match.              */
+/* Note that the comparison only looks at the 5-tuple.                      */
+/* ------------------------------------------------------------------------ */
+static int fr_state_cmp(st1, st2)
+ipstate_t *st1;
+ipstate_t *st2;
+{
+	if ((st1->is_v == st2->is_v) &&
+		(st1->is_p == st2->is_p) &&
+		!bcmp(&st1->is_src, &st2->is_src, sizeof(st1->is_src)) &&
+		!bcmp(&st1->is_dst, &st2->is_dst, sizeof(st1->is_dst))) {
+		switch (st1->is_p)
+		{
+		case IPPROTO_TCP :
+			if (st1->is_ps.is_ts.ts_sport == st2->is_ps.is_ts.ts_sport &&
+				st1->is_ps.is_ts.ts_dport == st2->is_ps.is_ts.ts_dport) {
+				return 0;
+			}
+			break;
+		case IPPROTO_UDP :
+			if (st1->is_ps.is_us.us_sport == st2->is_ps.is_us.us_sport &&
+				st1->is_ps.is_us.us_dport == st2->is_ps.is_us.us_dport) {
+				return 0;
+			}
+			break;
+		case IPPROTO_ICMP :
+			if (st1->is_ps.is_ics.ici_id == st2->is_ps.is_ics.ici_id &&
+				st1->is_ps.is_ics.ici_type == st2->is_ps.is_ics.ici_type) {
+				return 0;
+			}
+			break;
+		case IPPROTO_GRE :
+			/*
+			 * Not implemented
+			 */
+			break;
+		default :
+			break;
+		}
+	}
+	return 1;
+}
+
+/* ------------------------------------------------------------------------ */
 /* Function:    fr_state_remove                                             */
 /* Returns:     int - 0 == success, != 0 == failure                         */
 /* Parameters:  data(I) - pointer to state structure to delete from table   */
@@ -407,26 +459,21 @@ caddr_t data;
 {
 	ipstate_t *sp, st;
 	int error;
+	int _cpu_idx = IPF_PERCPU_IDX_INIT;
 
 	sp = &st;
 	error = fr_inobj(data, &st, IPFOBJ_IPSTATE);
 	if (error)
 		return EFAULT;
 
-	WRITE_ENTER(&ipf_state);
+	WRITE_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx);
 	for (sp = ips_list; sp; sp = sp->is_next)
-		if ((sp->is_p == st.is_p) && (sp->is_v == st.is_v) &&
-		    !bcmp((caddr_t)&sp->is_src, (caddr_t)&st.is_src,
-			  sizeof(st.is_src)) &&
-		    !bcmp((caddr_t)&sp->is_dst, (caddr_t)&st.is_src,
-			  sizeof(st.is_dst)) &&
-		    !bcmp((caddr_t)&sp->is_ps, (caddr_t)&st.is_ps,
-			  sizeof(st.is_ps))) {
+		if (fr_state_cmp(&st, sp) == 0) {
 			fr_delstate(sp, ISL_REMOVE);
-			RWLOCK_EXIT(&ipf_state);
+			RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
 			return 0;
 		}
-	RWLOCK_EXIT(&ipf_state);
+	RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
 	return ESRCH;
 }
 
@@ -461,9 +508,10 @@ int mode;
 	case SIOCIPFFL :
 		BCOPYIN(data, (char *)&arg, sizeof(arg));
 		if (arg == 0 || arg == 1) {
-			WRITE_ENTER(&ipf_state);
+			int _cpu_idx = IPF_PERCPU_IDX_INIT;
+			WRITE_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx);
 			ret = fr_state_flush(arg, 4);
-			RWLOCK_EXIT(&ipf_state);
+			RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
 			BCOPYOUT((char *)&ret, data, sizeof(ret));
 		} else
 			error = EINVAL;
@@ -472,9 +520,10 @@ int mode;
 	case SIOCIPFL6 :
 		BCOPYIN(data, (char *)&arg, sizeof(arg));
 		if (arg == 0 || arg == 1) {
-			WRITE_ENTER(&ipf_state);
+			int _cpu_idx = IPF_PERCPU_IDX_INIT;
+			WRITE_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx);
 			ret = fr_state_flush(arg, 6);
-			RWLOCK_EXIT(&ipf_state);
+			RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
 			BCOPYOUT((char *)&ret, data, sizeof(ret));
 		} else
 			error = EINVAL;
@@ -661,10 +710,11 @@ caddr_t data;
 	fr = ips.ips_rule;
 
 	if (fr == NULL) {
-		READ_ENTER(&ipf_state);
+		int _cpu_idx = IPF_PERCPU_IDX_INIT;
+		READ_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx);
 		fr_stinsert(isn, 0);
 		MUTEX_EXIT(&isn->is_lock);
-		RWLOCK_EXIT(&ipf_state);
+		RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
 		return 0;
 	}
 
@@ -710,13 +760,17 @@ caddr_t data;
 			KFREE(fr);
 			return EFAULT;
 		}
-		READ_ENTER(&ipf_state);
-		fr_stinsert(isn, 0);
-		MUTEX_EXIT(&isn->is_lock);
-		RWLOCK_EXIT(&ipf_state);
+		{
+			int _cpu_idx = IPF_PERCPU_IDX_INIT;
+			READ_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx);
+			fr_stinsert(isn, 0);
+			MUTEX_EXIT(&isn->is_lock);
+			RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
+		}
 
 	} else {
-		READ_ENTER(&ipf_state);
+		int _cpu_idx = IPF_PERCPU_IDX_INIT;
+		READ_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx);
 		for (is = ips_list; is; is = is->is_next)
 			if (is->is_rule == fr) {
 				fr_stinsert(isn, 0);
@@ -728,7 +782,7 @@ caddr_t data;
 			KFREE(isn);
 			isn = NULL;
 		}
-		RWLOCK_EXIT(&ipf_state);
+		RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
 
 		return (isn == NULL) ? ESRCH : 0;
 	}
@@ -868,15 +922,15 @@ u_int flags;
 	fr = fin->fin_fr;
 	if (fr != NULL) {
 
-       /* flush when 85 % of states are full , we do not want to drop any
-        * packet . This is AIX specific piece of code isa result of
-        * IZ15869 and defect 649968 .
-        */
+  /* flush when 85 % of states are full , we do not want to drop any
+   * packet . This is AIX specific piece of code isa result of
+   * IZ15869 and defect 649968 .
+   */
 
-               if (( (fr->fr_statecnt * 100)/ fr_statemax)  >= 85 ) {
-                       ATOMIC_INCL(ips_stats.iss_maxref);
-                       fr_state_doflush = 1;
-               }
+  if (( (fr->fr_statecnt * 100)/ fr_statemax)  >= 85 ) {
+   ATOMIC_INCL(ips_stats.iss_maxref);
+   fr_state_doflush = 1;
+  }
 
 		if ((ips_num == fr_statemax) && (fr->fr_statemax == 0)) {
 			ATOMIC_INCL(ips_stats.iss_max);
@@ -901,7 +955,7 @@ u_int flags;
 	is->is_die = 1 + fr_ticks;
 
 	/*
-	 * Copy and calculate...
+	 * Copy and calculate the initial hash.
 	 */
 	hv = (is->is_p = fin->fin_fi.fi_p);
 	is->is_src = fin->fin_fi.fi_src;
@@ -937,6 +991,11 @@ u_int flags;
 		hv += is->is_src.i6[3];
 	}
 #endif
+	if ((fin->fin_v == 4) &&
+	    (fin->fin_flx & (FI_MULTICAST|FI_BROADCAST|FI_MBCAST))) {
+		flags |= SI_W_DADDR;
+		hv -= is->is_daddr;
+	}
 
 	switch (is->is_p)
 	{
@@ -980,6 +1039,7 @@ u_int flags;
 		ATOMIC_INCL(ips_stats.iss_icmp);
 		break;
 
+#if 0
 	case IPPROTO_GRE :
 		gre = fin->fin_dp;
 
@@ -990,6 +1050,7 @@ u_int flags;
 			is->is_call[1] = fin->fin_data[1];
 		}
 		break;
+#endif
 
 	case IPPROTO_TCP :
 		tcp = fin->fin_dp;
@@ -1199,7 +1260,9 @@ u_int flags;
 	if (pass & FR_LOGFIRST)
 		is->is_pass &= ~(FR_LOGFIRST|FR_LOG);
 
-	READ_ENTER(&ipf_state);
+	{
+	int _cpu_idx_addstate = IPF_PERCPU_IDX_INIT;
+	READ_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx_addstate);
 
 	fr_stinsert(is, fin->fin_rev);
 
@@ -1225,7 +1288,8 @@ u_int flags;
 	if (ipstate_logging)
 		ipstate_log(is, ISL_NEW);
 
-	RWLOCK_EXIT(&ipf_state);
+	RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx_addstate);
+	}
 	fin->fin_state = is;
 	fin->fin_rev = IP6_NEQ(&is->is_dst, &fin->fin_daddr);
 	fin->fin_flx |= FI_STATE;
@@ -1354,7 +1418,7 @@ ipstate_t *is;
 	tcpdata_t  *fdata, *tdata;
 
 	source = !fin->fin_rev;
-	if (((is->is_flags & IS_TCPFSM) != 0) && (source == 1) && 
+	if (((is->is_flags & IS_TCPFSM) != 0) && (source == 1) &&
 	    (ntohs(is->is_sport) != fin->fin_data[0]))
 		source = 0;
 	fdata = &is->is_tcp.ts_data[!source];
@@ -1408,21 +1472,16 @@ ipstate_t *is;
 		if (flags == (TH_SYN|TH_ACK)) {
 			is->is_s0[source] = ntohl(tcp->th_ack);
 			is->is_s0[!source] = ntohl(tcp->th_seq) + 1;
-			if ((TCP_OFF(tcp) > (sizeof(tcphdr_t) >> 2)) &&
-			    (tdata->td_winflags & TCP_WSCALE_SEEN)) {
+			if ((TCP_OFF(tcp) > (sizeof(tcphdr_t) >> 2))) {
 				if (fr_tcpoptions(fin, tcp, fdata) == -1)
 					fin->fin_flx |= FI_BAD;
-				if (!(fdata->td_winflags & TCP_WSCALE_SEEN)) {
-					fdata->td_winscale = 0;
-					tdata->td_winscale = 0;
-				}
 			}
 			if ((fin->fin_out != 0) && (is->is_pass & FR_NEWISN))
 				fr_checknewisn(fin, is);
 		} else if (flags == TH_SYN) {
 			is->is_s0[source] = ntohl(tcp->th_seq) + 1;
 			if ((TCP_OFF(tcp) > (sizeof(tcphdr_t) >> 2))) {
-				if (fr_tcpoptions(fin, tcp, tdata) == -1)
+				if (fr_tcpoptions(fin, tcp, fdata) == -1)
 					fin->fin_flx |= FI_BAD;
 			}
 
@@ -1484,7 +1543,7 @@ ipstate_t *is;
 /*                                                                          */
 /* Given a packet has matched addresses and ports, check to see if it is    */
 /* within the TCP data window.  In a show of generosity, allow packets that */
-/* are within the window space behind the current sequence # as well.       */
+/* are within two window spaces behind the current sequence # as well.      */
 /* ------------------------------------------------------------------------ */
 int fr_tcpinwindow(fin, fdata, tdata, tcp, flags)
 fr_info_t *fin;
@@ -1529,17 +1588,8 @@ int flags;
 	 * the receiver also does window scaling)
 	 */
 	if (!(tcpflags & TH_SYN) && (fdata->td_winflags & TCP_WSCALE_FIRST)) {
-		if (tdata->td_winflags & TCP_WSCALE_SEEN) {
-			fdata->td_winflags &= ~TCP_WSCALE_FIRST;
-			fdata->td_maxwin = win;
-		} else {
-			fdata->td_winscale = 0;
-			fdata->td_winflags &= ~(TCP_WSCALE_FIRST|
-						TCP_WSCALE_SEEN);
-			tdata->td_winscale = 0;
-			tdata->td_winflags &= ~(TCP_WSCALE_FIRST|
-						TCP_WSCALE_SEEN);
-		  }
+		fdata->td_winflags &= ~TCP_WSCALE_FIRST;
+		fdata->td_maxwin = win;
 	}
 
 	end = seq + dsize;
@@ -1579,10 +1629,10 @@ int flags;
 #define	SEQ_GT(a,b)	((int)((a) - (b)) > 0)
 	inseq = 0;
 	if ((SEQ_GE(fdata->td_maxend, end)) &&
-	    (SEQ_GE(seq, fdata->td_end - maxwin)) &&
+	    (SEQ_GE(seq, fdata->td_end - 2*maxwin)) &&
 /* XXX what about big packets */
 #define MAXACKWINDOW 66000
-	    (-ackskew <= (MAXACKWINDOW << fdata->td_winscale)) &&
+	    (-ackskew <= (MAXACKWINDOW)) &&
 	    ( ackskew <= (MAXACKWINDOW << fdata->td_winscale))) {
 		inseq = 1;
 	/*
@@ -1613,7 +1663,7 @@ int flags;
 			 * accepted, even if it appears out of sequence.
 			 */
 			inseq = 1;
-		} else 
+		} else
 #endif
 		if (!(fdata->td_winflags &
 			    (TCP_WSCALE_SEEN|TCP_WSCALE_FIRST))) {
@@ -1626,9 +1676,33 @@ int flags;
 			else if (SEQ_GE(seq + maxwin, fdata->td_end - maxwin))
 				inseq = 1;
 		}
+
+	/*
+	 * Allow ACK in response to SYN (TCP half-open connection).
+	 */
+	} else if ((flags & IS_TCPFSM) &&
+			  (fdata->td_end == 0) &&
+			  (tdata->td_end != 0) &&
+			  ((tcpflags & TH_OPENING) == TH_ACK)) {
+		inseq = 2;
+
+	/*
+	 * Allow RST in response to ACK which in turn was in response to
+	 * SYN (TCP half-open connection).
+	 */
+	} else if ((flags & IS_TCPFSM) &&
+			  (fdata->td_end != 0) &&
+			  (tdata->td_end == 0) &&
+			  (tcpflags & TH_RST)) {
+		inseq = 2;
 	}
 
-	if (inseq) {
+	if (inseq == 2) {
+		/*
+		 * Allow an out of window packet but don't change state.
+		 */
+		return 1;
+	} else if (inseq == 1) {
 		/* if ackskew < 0 then this should be due to fragmented
 		 * packets. There is no way to know the length of the
 		 * total packet in advance.
@@ -2064,7 +2138,8 @@ fr_info_t *fin;
 # endif
 	}
 #endif
-	bcopy((char *)fin, (char *)&ofin, sizeof(fin));
+
+	bcopy((char *)fin, (char *)&ofin, sizeof(*fin));
 
 	/*
 	 * in the IPv4 case we must zero the i6addr union otherwise
@@ -2137,7 +2212,9 @@ fr_info_t *fin;
 		hv += icmp->icmp_id;
 		hv = DOUBLE_HASH(hv);
 
-		READ_ENTER(&ipf_state);
+		{
+		int _cpu_idx = IPF_PERCPU_IDX_INIT;
+		READ_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx);
 		for (isp = &ips_table[hv]; ((is = *isp) != NULL); ) {
 			isp = &is->is_hnext;
 			if ((is->is_p != pr) || (is->is_v != 4))
@@ -2164,10 +2241,12 @@ fr_info_t *fin;
 					continue;
 				ips_stats.iss_hits++;
 				is->is_icmppkts[i]++;
+				RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
 				return is;
 			}
 		}
-		RWLOCK_EXIT(&ipf_state);
+		RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
+		}
 		return NULL;
 	case IPPROTO_TCP :
 	case IPPROTO_UDP :
@@ -2189,7 +2268,9 @@ fr_info_t *fin;
 	hv += sport;
 	hv = DOUBLE_HASH(hv);
 
-	READ_ENTER(&ipf_state);
+	{
+	int _cpu_idx = IPF_PERCPU_IDX_INIT;
+	READ_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx);
 	for (isp = &ips_table[hv]; ((is = *isp) != NULL); ) {
 		isp = &is->is_hnext;
 		/*
@@ -2226,10 +2307,12 @@ fr_info_t *fin;
 			 * for the accompanying state table entry.
 			 * It remains to be seen if that is correct. XXX
 			 */
+			RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
 			return is;
 		}
 	}
-	RWLOCK_EXIT(&ipf_state);
+	RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
+	}
 	return NULL;
 }
 
@@ -2291,8 +2374,10 @@ u_int hv;
 /* Search the state table for a matching entry to the packet described by   */
 /* the contents of *fin.                                                    */
 /*                                                                          */
-/* If we return NULL then no lock on ipf_state is held.                     */
-/* If we return non-null then a read-lock on ipf_state is held.             */
+/* A read lock on ipf_state_pcpu is acquired at function entry (stored in   */
+/* fin->fin_cpuidx).  On NULL return the lock has been released here.       */
+/* On non-NULL return the read lock is still held; fr_checkstate() releases  */
+/* it via RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, fin->fin_cpuidx).             */
 /* ------------------------------------------------------------------------ */
 ipstate_t *fr_stlookup(fin, tcp, ifqp)
 fr_info_t *fin;
@@ -2306,6 +2391,26 @@ ipftq_t **ifqp;
 	struct icmp *ic;
 	ipftq_t *ifq;
 	int oow;
+
+	/*
+	 * Initialise the per-CPU lock tracking field in fin.
+	 * fr_stlookup stores the slot here so fr_checkstate can release it.
+	 * IPF_PERCPU_IDX_INIT (-1) means "no per-CPU lock held".
+	 */
+	fin->fin_cpuidx = IPF_PERCPU_IDX_INIT;
+
+	/*
+	 * Acquire a read slot on ipf_state_pcpu before touching any hash
+	 * chain pointer.  ipf_global_pcpu (held by fr_check for the packet
+	 * lifetime) is a lifecycle guard only — it does not protect
+	 * ips_table[] from concurrent fr_addstate()/fr_delstate() which
+	 * hold only ipf_state_pcpu (write).  Without this acquire, walking
+	 * is->is_hnext while fr_delstate() frees the same entry is a
+	 * use-after-free.  The write-upgrade (tryagain) paths below call
+	 * WRITE_ENTER_PERCPU which reuses fin->fin_cpuidx; RWLOCK_EXIT_PERCPU
+	 * in fr_checkstate() releases whatever slot is recorded there.
+	 */
+	READ_ENTER_PERCPU(&ipf_state_pcpu, fin->fin_cpuidx);
 
 	is = NULL;
 	ifq = NULL;
@@ -2334,6 +2439,14 @@ ipftq_t **ifqp;
 		}
 	}
 #endif
+	if ((v == 4) &&
+	    (fin->fin_flx & (FI_MULTICAST|FI_BROADCAST|FI_MBCAST))) {
+		if (fin->fin_out == 0) {
+			hv -= src.in4.s_addr;
+		} else {
+			hv -= dst.in4.s_addr;
+		}
+	}
 
 	/*
 	 * Search the hash table for matching packet header info.
@@ -2349,7 +2462,6 @@ ipftq_t **ifqp;
 				hv += ic->icmp_id;
 			}
 		}
-		READ_ENTER(&ipf_state);
 icmp6again:
 		hvm = DOUBLE_HASH(hv);
 		for (isp = &ips_table[hvm]; ((is = *isp) != NULL); ) {
@@ -2375,12 +2487,11 @@ icmp6again:
 				hv += fin->fin_fi.fi_src.i6[2];
 				hv += fin->fin_fi.fi_src.i6[3];
 				fr_ipsmove(is, hv);
-				MUTEX_DOWNGRADE(&ipf_state);
+				MUTEX_DOWNGRADE_PERCPU(&ipf_state_pcpu,
+				    fin->fin_cpuidx);
 			}
 			break;
 		}
-		RWLOCK_EXIT(&ipf_state);
-
 		/*
 		 * No matching icmp state entry. Perhaps this is a
 		 * response to another state entry.
@@ -2398,10 +2509,26 @@ icmp6again:
 			hv -= fin->fin_fi.fi_src.i6[2];
 			hv -= fin->fin_fi.fi_src.i6[3];
 			tryagain = 1;
-			WRITE_ENTER(&ipf_state);
+			/* Release the read slot acquired at function entry
+			 * before upgrading to write; WRITE_ENTER_PERCPU acquires
+			 * all 256 slots and would self-deadlock on the slot we
+			 * already hold in read mode. */
+			RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, fin->fin_cpuidx);
+			WRITE_ENTER_PERCPU(&ipf_state_pcpu, fin->fin_cpuidx);
 			goto icmp6again;
 		}
 
+		/*
+		 * fr_checkicmp6matchingstate() acquires and releases
+		 * ipf_state_pcpu itself.  Drop the slot taken at function
+		 * entry (or the write sentinel left by the tryagain path)
+		 * first: re-acquiring a slot this thread already holds
+		 * self-deadlocks against a held write lock, and the nested
+		 * READ_ENTER_PERCPU would clobber ipfc_isr[cpu], leaving the
+		 * thread at the wrong IPL after both exits.  This also resets
+		 * fin_cpuidx so fr_checkstate() does not release twice.
+		 */
+		RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, fin->fin_cpuidx);
 		is = fr_checkicmp6matchingstate(fin);
 		if (is != NULL)
 			return is;
@@ -2413,7 +2540,6 @@ icmp6again:
 			hv += ic->icmp_id;
 		}
 		hv = DOUBLE_HASH(hv);
-		READ_ENTER(&ipf_state);
 		for (isp = &ips_table[hv]; ((is = *isp) != NULL); ) {
 			isp = &is->is_hnext;
 			if ((is->is_p != pr) || (is->is_v != v))
@@ -2430,9 +2556,6 @@ icmp6again:
 				break;
 			}
 		}
-		if (is == NULL) {
-			RWLOCK_EXIT(&ipf_state);
-		}
 		break;
 
 	case IPPROTO_TCP :
@@ -2444,7 +2567,6 @@ icmp6again:
 		hv += dport;
 		oow = 0;
 		tryagain = 0;
-		READ_ENTER(&ipf_state);
 retry_tcpudp:
 		hvm = DOUBLE_HASH(hv);
 		for (isp = &ips_table[hvm]; ((is = *isp) != NULL); ) {
@@ -2469,17 +2591,20 @@ retry_tcpudp:
 				hv += dport;
 				hv += sport;
 				fr_ipsmove(is, hv);
-				MUTEX_DOWNGRADE(&ipf_state);
+				MUTEX_DOWNGRADE_PERCPU(&ipf_state_pcpu,
+				    fin->fin_cpuidx);
 			}
 			break;
 		}
-		RWLOCK_EXIT(&ipf_state);
-
 		if (!tryagain && ips_stats.iss_wild) {
 			hv -= dport;
 			hv -= sport;
 			tryagain = 1;
-			WRITE_ENTER(&ipf_state);
+			/* Release the read slot before upgrading to write.
+			 * WRITE_ENTER_PERCPU acquires all 256 slots and would
+			 * self-deadlock on the slot already held in read mode. */
+			RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, fin->fin_cpuidx);
+			WRITE_ENTER_PERCPU(&ipf_state_pcpu, fin->fin_cpuidx);
 			goto retry_tcpudp;
 		}
 		fin->fin_flx |= oow;
@@ -2496,7 +2621,6 @@ retry_tcpudp:
 	default :
 		ifqp = NULL;
 		hvm = DOUBLE_HASH(hv);
-		READ_ENTER(&ipf_state);
 		for (isp = &ips_table[hvm]; ((is = *isp) != NULL); ) {
 			isp = &is->is_hnext;
 			if ((is->is_p != pr) || (is->is_v != v))
@@ -2507,9 +2631,6 @@ retry_tcpudp:
 				break;
 			}
 		}
-		if (is == NULL) {
-			RWLOCK_EXIT(&ipf_state);
-		}
 		break;
 	}
 
@@ -2519,6 +2640,14 @@ retry_tcpudp:
 			ifq = is->is_tqehead[fin->fin_rev];
 		if (ifq != NULL && ifqp != NULL)
 			*ifqp = ifq;
+	} else {
+		/*
+		 * No match found.  Release the read slot acquired at function
+		 * entry — contract: "if NULL returned, no lock held".
+		 * Reset fin_cpuidx to IPF_PERCPU_IDX_INIT so fr_checkstate()
+		 * does not attempt a spurious release.
+		 */
+		RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, fin->fin_cpuidx);
 	}
 	return is;
 }
@@ -2544,21 +2673,26 @@ ipftq_t *ifq;
 
 	i = (fin->fin_rev << 1) + fin->fin_out;
 
-	/*
-	 * For TCP packets, ifq == NULL.  For all others, check if this new
-	 * queue is different to the last one it was on and move it if so.
-	 */
 	tqe = &is->is_sti;
-	MUTEX_ENTER(&is->is_lock);
-	if ((tqe->tqe_flags & TQE_RULEBASED) != 0)
-		ifq = is->is_tqehead[fin->fin_rev];
+	/*
+	 * Opt 37B: for TCP, ifq is always NULL on the steady-state path and
+	 * TQE_RULEBASED is not set, so skip the lock and queue move entirely.
+	 * Only enter the lock when there is real queue work to do.
+	 */
+	if (ifq != NULL || (tqe->tqe_flags & TQE_RULEBASED) != 0) {
+		MUTEX_ENTER(&is->is_lock);
+		if ((tqe->tqe_flags & TQE_RULEBASED) != 0)
+			ifq = is->is_tqehead[fin->fin_rev];
+		if (ifq != NULL)
+			fr_movequeue(tqe, tqe->tqe_ifq, ifq);
+		MUTEX_EXIT(&is->is_lock);
+	}
 
-	if (ifq != NULL)
-		fr_movequeue(tqe, tqe->tqe_ifq, ifq);
-
-	is->is_pkts[i]++;
-	is->is_bytes[i] += fin->fin_plen;
-	MUTEX_EXIT(&is->is_lock);
+	/*
+	 * Counter updates use atomics (fetch_and_addlp): no lock needed.
+	 */
+	ATOMIC_INC64(is->is_pkts[i]);
+	ATOMIC_ADD64(is->is_bytes[i], fin->fin_plen);
 
 #ifdef	IPFILTER_SYNC
 	if (is->is_flags & IS_STATESYNC)
@@ -2601,6 +2735,13 @@ u_32_t *passp;
 	if (fr_state_lock || (ips_list == NULL) ||
 	    (fin->fin_flx & (FI_SHORT|FI_STATE|FI_FRAGBODY|FI_BAD)))
 		return NULL;
+
+	/*
+	 * Initialise per-CPU lock tracking.  fr_stlookup() will store the
+	 * acquired CPU slot in fin->fin_cpuidx; we release it here after the
+	 * state entry has been found and referenced.
+	 */
+	fin->fin_cpuidx = IPF_PERCPU_IDX_INIT;
 
 	is = NULL;
 	if ((fin->fin_flx & FI_TCPUDP) ||
@@ -2671,10 +2812,16 @@ matched:
 	fr = is->is_rule;
 	if (fr != NULL) {
 		if ((fin->fin_out == 0) && (fr->fr_nattag.ipt_num[0] != 0)) {
-			if (fin->fin_nattag == NULL)
+			if ((fin->fin_nattag == NULL) ||
+			    (fr_matchtag(&fr->fr_nattag, fin->fin_nattag) != 0)) {
+				/*
+				 * Reject: release whatever state lock
+				 * fr_stlookup() left held (no-op if none).
+				 */
+				RWLOCK_EXIT_PERCPU(&ipf_state_pcpu,
+				    fin->fin_cpuidx);
 				return NULL;
-			if (fr_matchtag(&fr->fr_nattag, fin->fin_nattag) != 0)
-				return NULL;
+			}
 		}
 		(void) strncpy(fin->fin_group, fr->fr_group, FR_GROUPLEN);
 		fin->fin_icode = fr->fr_icode;
@@ -2688,10 +2835,17 @@ matched:
 
 	fin->fin_state = is;
 	is->is_touched = fr_ticks;
-	MUTEX_ENTER(&is->is_lock);
-	is->is_ref++;
-	MUTEX_EXIT(&is->is_lock);
-	RWLOCK_EXIT(&ipf_state);
+	/*
+	 * Bump is_ref atomically: no is_lock needed because we hold a
+	 * READ_ENTER_PERCPU slot, which prevents any writer from running.
+	 */
+	ATOMIC_INC32(is->is_ref);
+	/*
+	 * Release the state lock unconditionally via the per-CPU path.
+	 * RWLOCK_EXIT_PERCPU handles read (0..IPF_MAX_CPUS-2), write
+	 * (IPF_WRITE_SENTINEL), and no-lock (IPF_PERCPU_IDX_INIT) cases.
+	 */
+	RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, fin->fin_cpuidx);
 	fin->fin_flx |= FI_STATE;
 	if ((pass & FR_LOGFIRST) != 0)
 		pass &= ~(FR_LOGFIRST|FR_LOG);
@@ -2797,10 +2951,12 @@ void *ifp;
 	if (fr_running <= 0)
 		return;
 
-	WRITE_ENTER(&ipf_state);
+	{
+	int _cpu_idx = IPF_PERCPU_IDX_INIT;
+	WRITE_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx);
 
 	if (fr_running <= 0) {
-		RWLOCK_EXIT(&ipf_state);
+		RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
 		return;
 	}
 
@@ -2814,7 +2970,8 @@ void *ifp;
 							      is->is_v);
 		}
 	}
-	RWLOCK_EXIT(&ipf_state);
+	RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
+	}
 }
 
 
@@ -2945,8 +3102,10 @@ void fr_timeoutstate()
 	ipstate_t *is;
 	SPL_INT(s);
 
+	{
+	int _cpu_idx = IPF_PERCPU_IDX_INIT;
 	SPL_NET(s);
-	WRITE_ENTER(&ipf_state);
+	WRITE_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx);
 	for (ifq = ips_tqtqb; ifq != NULL; ifq = ifq->ifq_next)
 		for (tqn = ifq->ifq_head; ((tqe = tqn) != NULL); ) {
 			if (tqe->tqe_die > fr_ticks)
@@ -2982,7 +3141,8 @@ void fr_timeoutstate()
 		fr_state_doflush = 0;
 	}
 
-	RWLOCK_EXIT(&ipf_state);
+	RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
+	}
 	SPL_X(s);
 }
 
@@ -3135,7 +3295,7 @@ force_flush_skipped:
 /* ------------------------------------------------------------------------ */
 /* Function:    fr_tcp_age                                                  */
 /* Returns:     int - 1 == state transition made, 0 == no change (rejected) */
-/* Parameters:  tq(I)    - pointer to timeout queue information             */
+/* Parameters:  tqe(I)   - pointer to timeout queue information             */
 /*              fin(I)   - pointer to packet information                    */
 /*              tqtab(I) - TCP timeout queue table this is in               */
 /*              flags(I) - flags from state/NAT entry                       */
@@ -3160,6 +3320,25 @@ force_flush_skipped:
 /*    dir == 0 : a packet from source to dest                               */
 /*    dir == 1 : a packet from dest to source                               */
 /*                                                                          */
+/* A typical procession for a connection is as follows:                     */
+/*                                                                          */
+/* +--------------+-------------------+                                     */
+/* | Side '0'     | Side '1'          |                                     */
+/* +--------------+-------------------+                                     */
+/* | 0 -> 1 (SYN) |                   |                                     */
+/* |              | 0 -> 2 (SYN-ACK)  |                                     */
+/* | 1 -> 3 (ACK) |                   |                                     */
+/* |              | 2 -> 4 (ACK-PUSH) |                                     */
+/* | 3 -> 4 (ACK) |                   |                                     */
+/* |   ...        |   ...             |                                     */
+/* |              | 4 -> 6 (FIN-ACK)  |                                     */
+/* | 4 -> 5 (ACK) |                   |                                     */
+/* |              | 6 -> 6 (ACK-PUSH) |                                     */
+/* | 5 -> 5 (ACK) |                   |                                     */
+/* | 5 -> 8 (FIN) |                   |                                     */
+/* |              | 6 -> 10 (ACK)     |                                     */
+/* +--------------+-------------------+                                     */
+/*                                                                          */
 /* Locking: it is assumed that the parent of the tqe structure is locked.   */
 /* ------------------------------------------------------------------------ */
 int fr_tcp_age(tqe, fin, tqtab, flags)
@@ -3178,29 +3357,32 @@ int flags;
 	dir = fin->fin_rev;
 	tcpflags = tcp->th_flags;
 	dlen = fin->fin_dlen - (TCP_OFF(tcp) << 2);
+	ostate = tqe->tqe_state[1 - dir];
+	nstate = tqe->tqe_state[dir];
 
 	if (tcpflags & TH_RST) {
 		if (!(tcpflags & TH_PUSH) && !dlen)
 			nstate = IPF_TCPS_CLOSED;
 		else
 			nstate = IPF_TCPS_CLOSE_WAIT;
+
+		if (ostate <= IPF_TCPS_ESTABLISHED) {
+			tqe->tqe_state[1 - dir] = IPF_TCPS_CLOSE_WAIT;
+		}
 		rval = 1;
 	} else {
-		ostate = tqe->tqe_state[1 - dir];
-		nstate = tqe->tqe_state[dir];
-
 		switch (nstate)
 		{
-		case IPF_TCPS_CLOSED: /* 0 */
+		case IPF_TCPS_LISTEN: /* 0 */
 			if ((tcpflags & TH_OPENING) == TH_OPENING) {
 				/*
 				 * 'dir' received an S and sends SA in
-				 * response, CLOSED -> SYN_RECEIVED
+				 * response, LISTEN -> SYN_RECEIVED
 				 */
 				nstate = IPF_TCPS_SYN_RECEIVED;
 				rval = 1;
 			} else if ((tcpflags & TH_OPENING) == TH_SYN) {
-				/* 'dir' sent S, CLOSED -> SYN_SENT */
+				/* 'dir' sent S, LISTEN -> SYN_SENT */
 				nstate = IPF_TCPS_SYN_SENT;
 				rval = 1;
 			}
@@ -3219,7 +3401,7 @@ int flags;
 				 */
 				switch (ostate)
 				{
-				case IPF_TCPS_CLOSED :
+				case IPF_TCPS_LISTEN :
 				case IPF_TCPS_SYN_RECEIVED :
 					nstate = IPF_TCPS_HALF_ESTAB;
 					rval = 1;
@@ -3232,7 +3414,14 @@ int flags;
 				default :
 					break;
 				}
+			/*
+			 * Allow ACK in response to SYN (TCP half-open connection).
+			 */
+			} else if (ostate == IPF_TCPS_SYN_SENT &&
+				   (tcpflags & TH_ACKMASK) == TH_ACK) {
+				rval = 2;
 			}
+	
 			/*
 			 * TODO: besides regular ACK packets we can have other
 			 * packets as well; it is yet to be determined how we
@@ -3240,11 +3429,7 @@ int flags;
 			 */
 			break;
 
-		case IPF_TCPS_LISTEN: /* 1 */
-			/* NOT USED */
-			break;
-
-		case IPF_TCPS_SYN_SENT: /* 2 */
+		case IPF_TCPS_SYN_SENT: /* 1 */
 			if ((tcpflags & ~(TH_ECN|TH_CWR)) == TH_SYN) {
 				/*
 				 * A retransmitted SYN packet.  We do not reset
@@ -3285,7 +3470,7 @@ int flags;
 			}
 			break;
 
-		case IPF_TCPS_SYN_RECEIVED: /* 3 */
+		case IPF_TCPS_SYN_RECEIVED: /* 2 */
 			if ((tcpflags & (TH_SYN|TH_FIN|TH_ACK)) == TH_ACK) {
 				/*
 				 * we see an A from 'dir' which was in
@@ -3314,7 +3499,7 @@ int flags;
 			}
 			break;
 
-		case IPF_TCPS_HALF_ESTAB: /* 4 */
+		case IPF_TCPS_HALF_ESTAB: /* 3 */
 			if (tcpflags & TH_FIN) {
 				nstate = IPF_TCPS_FIN_WAIT_1;
 				rval = 1;
@@ -3329,7 +3514,7 @@ int flags;
 				 */
 				switch (ostate)
 				{
-				case IPF_TCPS_CLOSED :
+				case IPF_TCPS_LISTEN :
 				case IPF_TCPS_SYN_SENT :
 				case IPF_TCPS_SYN_RECEIVED :
 					rval = 1;
@@ -3345,7 +3530,7 @@ int flags;
 			}
 			break;
 
-		case IPF_TCPS_ESTABLISHED: /* 5 */
+		case IPF_TCPS_ESTABLISHED: /* 4 */
 			rval = 1;
 			if (tcpflags & TH_FIN) {
 				/*
@@ -3353,7 +3538,11 @@ int flags;
 				 * this gives us a half-closed connection;
 				 * ESTABLISHED -> FIN_WAIT_1
 				 */
-				nstate = IPF_TCPS_FIN_WAIT_1;
+				if (ostate == IPF_TCPS_FIN_WAIT_1) {
+					nstate = IPF_TCPS_CLOSING;
+				} else {
+					nstate = IPF_TCPS_FIN_WAIT_1;
+				}
 			} else if (tcpflags & TH_ACK) {
 				/*
 				 * an ACK, should we exclude other flags here?
@@ -3378,7 +3567,7 @@ int flags;
 			}
 			break;
 
-		case IPF_TCPS_CLOSE_WAIT: /* 6 */
+		case IPF_TCPS_CLOSE_WAIT: /* 5 */
 			rval = 1;
 			if (tcpflags & TH_FIN) {
 				/*
@@ -3396,7 +3585,7 @@ int flags;
 			}
 			break;
 
-		case IPF_TCPS_FIN_WAIT_1: /* 7 */
+		case IPF_TCPS_FIN_WAIT_1: /* 6 */
 			rval = 1;
 			if ((tcpflags & TH_ACK) &&
 			    ostate > IPF_TCPS_CLOSE_WAIT) {
@@ -3405,14 +3594,14 @@ int flags;
 				 * it has sent us a FIN packet that we are
 				 * ack'ing now with an ACK; this means both
 				 * sides have now closed the connection and
-				 * we go into TIME_WAIT
+				 * we go into LAST_ACK
 				 */
 				/*
 				 * XXX: how do we know we really are ACKing
 				 * the FIN packet here? does the window code
 				 * guarantee that?
 				 */
-				nstate = IPF_TCPS_TIME_WAIT;
+				nstate = IPF_TCPS_LAST_ACK;
 			} else {
 				/*
 				 * we closed our side of the connection
@@ -3424,55 +3613,45 @@ int flags;
 			}
 			break;
 
-		case IPF_TCPS_CLOSING: /* 8 */
-			/* NOT USED */
+		case IPF_TCPS_CLOSING: /* 7 */
+			if ((tcpflags & (TH_FIN|TH_ACK)) == TH_ACK) {
+				nstate = IPF_TCPS_TIME_WAIT;
+			}
+			rval = 1;
 			break;
 
-		case IPF_TCPS_LAST_ACK: /* 9 */
+		case IPF_TCPS_LAST_ACK: /* 8 */
 			if (tcpflags & TH_ACK) {
-				if ((tcpflags & TH_PUSH) || dlen)
-					/*
-					 * there is still data to be delivered,
-					 * reset timeout
-					 */
-					rval = 1;
-				else
-					rval = 2;
+				rval = 1;
 			}
 			/*
-			 * we cannot detect when we go out of LAST_ACK state to
-			 * CLOSED because that is based on the reception of ACK
-			 * packets; ipfilter can only detect that a packet
-			 * has been sent by a host
+			 * we cannot detect when we go out of LAST_ACK state
+			 * to CLOSED because that is based on the reception
+			 * of ACK packets; ipfilter can only detect that a
+			 * packet has been sent by a host
 			 */
 			break;
 
-		case IPF_TCPS_FIN_WAIT_2: /* 10 */
-			rval = 1;
-			if ((tcpflags & TH_OPENING) == TH_OPENING)
-				nstate = IPF_TCPS_SYN_RECEIVED;
-			else if (tcpflags & TH_SYN)
-				nstate = IPF_TCPS_SYN_SENT;
+		case IPF_TCPS_FIN_WAIT_2: /* 9 */
+			/* NOT USED */
 			break;
 
-		case IPF_TCPS_TIME_WAIT: /* 11 */
+		case IPF_TCPS_TIME_WAIT: /* 10 */
 			/* we're in 2MSL timeout now */
-			rval = 1;
+			if (ostate == IPF_TCPS_LAST_ACK) {
+				nstate = IPF_TCPS_CLOSED;
+				rval = 1;
+			} else {
+				rval = 2;
+			}
+			break;
+
+		case IPF_TCPS_CLOSED: /* 11 */
+			rval = 2;
 			break;
 
 		default :
-#if defined(_KERNEL)
-# if SOLARIS
-			cmn_err(CE_NOTE,
-				"tcp %lx flags %x si %lx nstate %d ostate %d\n",
-				(u_long)tcp, tcpflags, (u_long)tqe,
-				nstate, ostate);
-# else
-			printf("tcp %lx flags %x si %lx nstate %d ostate %d\n",
-				(u_long)tcp, tcpflags, (u_long)tqe,
-				nstate, ostate);
-# endif
-#else
+#if !defined(_KERNEL)
 			abort();
 #endif
 			break;
@@ -3486,9 +3665,35 @@ int flags;
 	if (rval == 2)
 		rval = 1;
 	else if (rval == 1) {
+		int old_dir_state = tqe->tqe_state[dir];   /* save before update */
 		tqe->tqe_state[dir] = nstate;
-		if ((tqe->tqe_flags & TQE_RULEBASED) == 0)
-			fr_movequeue(tqe, tqe->tqe_ifq, tqtab + nstate);
+		if ((tqe->tqe_flags & TQE_RULEBASED) == 0) {
+			/*
+			 * Opt 37B: three-way branch to avoid unconditional
+			 * fr_movequeue on every steady-state TCP ACK.
+			 *
+			 * 1. tqe_ifq == NULL: entry inserted into hash table
+			 *    but not yet placed on a timeout queue (race window
+			 *    between fr_stinsert and fr_setstatequeue).  Skip —
+			 *    fr_setstatequeue will place it momentarily, and
+			 *    fr_timeoutstate only walks entries already queued.
+			 *
+			 * 2. FSM state changed or entry is on the wrong queue:
+			 *    genuine transition — call fr_movequeue as before.
+			 *
+			 * 3. State and queue unchanged (dominant steady-state
+			 *    ACK path): just refresh the expiry deadline.
+			 *    No lock, no queue operation.
+			 */
+			if (tqe->tqe_ifq == NULL)
+				;	/* not yet queued; fr_setstatequeue will place it */
+			else if (nstate != old_dir_state ||
+				 tqe->tqe_ifq != tqtab + nstate)
+				fr_movequeue(tqe, tqe->tqe_ifq, tqtab + nstate);
+			else
+				tqe->tqe_die = fr_ticks +
+					       (tqtab + nstate)->ifq_ttl;
+		}
 	}
 
 	return rval;
@@ -3590,7 +3795,7 @@ fr_info_t *fin;
 	fr_info_t ofin;
 	tcphdr_t *tcp;
 	ip6_t *oip6;
-	u_char	pr;
+	u_char pr;
 	u_int hv;
 
 	/*
@@ -3610,7 +3815,7 @@ fr_info_t *fin;
 	if (fin->fin_plen < sizeof(*oip6))
 		return NULL;
 
-	bcopy((char *)fin, (char *)&ofin, sizeof(fin));
+	bcopy((char *)fin, (char *)&ofin, sizeof(*fin));
 	ofin.fin_v = 6;
 	ofin.fin_ifp = fin->fin_ifp;
 	ofin.fin_out = !fin->fin_out;
@@ -3635,6 +3840,13 @@ fr_info_t *fin;
 	(void) fr_makefrip(sizeof(*oip6), (ip_t *)oip6, &ofin);
 	ofin.fin_flx &= ~(FI_BAD|FI_SHORT);
 	oip6->ip6_plen = savelen;
+	pr = ofin.fin_p;
+
+	/*
+	 * an ICMP error can never generate an ICMP error in response.
+	 */
+	if (ofin.fin_flx & FI_ICMPERR)
+		return NULL;
 
 	if (oip6->ip6_nxt == IPPROTO_ICMPV6) {
 		oic = (struct icmp6_hdr *)(oip6 + 1);
@@ -3660,7 +3872,9 @@ fr_info_t *fin;
 		hv += oic->icmp6_seq;
 		hv = DOUBLE_HASH(hv);
 
-		READ_ENTER(&ipf_state);
+		{
+		int _cpu_idx = IPF_PERCPU_IDX_INIT;
+		READ_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx);
 		for (isp = &ips_table[hv]; ((is = *isp) != NULL); ) {
 			ic = &is->is_icmp;
 			isp = &is->is_hnext;
@@ -3682,12 +3896,14 @@ fr_info_t *fin;
 					backward = IP6_NEQ(&is->is_dst, &src);
 					fin->fin_rev = !backward;
 					i = (backward << 1) + fin->fin_out;
-    					is->is_icmppkts[i]++;
+		  			is->is_icmppkts[i]++;
+					RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
 					return is;
 				}
 			}
 		}
-		RWLOCK_EXIT(&ipf_state);
+		RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
+		}
 		return NULL;
 	}
 
@@ -3713,7 +3929,9 @@ fr_info_t *fin;
 		tcp = NULL;
 	hv = DOUBLE_HASH(hv);
 
-	READ_ENTER(&ipf_state);
+	{
+	int _cpu_idx = IPF_PERCPU_IDX_INIT;
+	READ_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx);
 	for (isp = &ips_table[hv]; ((is = *isp) != NULL); ) {
 		isp = &is->is_hnext;
 		/*
@@ -3738,10 +3956,12 @@ fr_info_t *fin;
 			 * for the accompanying state table entry.
 			 * It remains to be seen if that is correct. XXX
 			 */
+			RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
 			return is;
 		}
 	}
-	RWLOCK_EXIT(&ipf_state);
+	RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
+	}
 	return NULL;
 }
 #endif
@@ -3809,6 +4029,14 @@ ipftq_t *tqp;
 /* Decrement the reference counter for this state table entry and free it   */
 /* if there are no more things using it.                                    */
 /*                                                                          */
+/* This function is only called when cleaning up after increasing is_ref by */
+/* one earlier in the 'code path' so if is_ref is 1 when entering, we do    */
+/* have an orphan, otherwise not.  However there is a possible race between */
+/* the entry being deleted via flushing with an ioctl call (that calls the  */
+/* delete function directly) and the tail end of packet processing so we    */
+/* need to grab is_lock before doing the check to synchronise the two code  */
+/* paths.                                                                   */
+/*                                                                          */
 /* When operating in userland (ipftest), we have no timers to clear a state */
 /* entry.  Therefore, we make a few simple tests before deleting an entry   */
 /* outright.  We compare states on each side looking for a combination of   */
@@ -3829,56 +4057,37 @@ fr_info_t *fin;
 ipstate_t **isp;
 {
 	ipstate_t *is = *isp;
-#if 0
-	int nstate, ostate, dir, eol;
-
-	eol = 0; /* End-of-the-line flag. */
-	dir = fin->fin_rev;
-	ostate = is->is_state[1 - dir];
-	nstate = is->is_state[dir];
-	/*
-	 * Determine whether this packet is local or routed.  State entries
-	 * with us as the destination will have an interface list of
-	 * int1,-,-,int1.  Entries with us as the origin run as -,int1,int1,-.
-	 */
-	if ((fin->fin_p == IPPROTO_TCP) && (fin->fin_out == 0)) {
-		if ((strcmp(is->is_ifname[0], is->is_ifname[3]) == 0) &&
-		    (strcmp(is->is_ifname[1], is->is_ifname[2]) == 0)) {
-			if ((dir == 0) &&
-			    (strcmp(is->is_ifname[1], "-") == 0) &&
-			    (strcmp(is->is_ifname[0], "-") != 0)) {
-				eol = 1;
-			} else if ((dir == 1) &&
-				   (strcmp(is->is_ifname[0], "-") == 0) &&
-				   (strcmp(is->is_ifname[1], "-") != 0)) {
-				eol = 1;
-			}
-		}
-	}
-#endif
 
 	fin = fin;	/* LINT */
 	is = *isp;
 	*isp = NULL;
-	WRITE_ENTER(&ipf_state);
-	is->is_ref--;
+
+	/*
+	 * Atomically decrement is_ref (ATOMIC_DEC32_RET returns the OLD value).
+	 * Common case: old > 1 means the entry is still alive; return immediately.
+	 * Rare case: old == 1 (ref now 0) -- take write lock and re-check before
+	 * freeing, as a concurrent reader may have re-incremented is_ref.
+	 */
+	if (ATOMIC_DEC32_RET(is->is_ref) != 1) {
+		/* Old ref was > 1: entry still alive, nothing to free. */
+		return;
+	}
+
+	/* Old ref was 1 (now 0): take write lock and free if still zero. */
+	{
+	int _cpu_idx = IPF_PERCPU_IDX_INIT;
+	WRITE_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx);
 	if (is->is_ref == 0) {
 		is->is_ref++;		/* To counter ref-- in fr_delstate() */
 		fr_delstate(is, ISL_EXPIRE);
+	}
 #ifndef	_KERNEL
-#if 0
-	} else if (((fin->fin_out == 1) || (eol == 1)) &&
-		   ((ostate == IPF_TCPS_LAST_ACK) &&
-		   (nstate == IPF_TCPS_TIME_WAIT))) {
-		;
-#else
 	} else if ((is->is_sti.tqe_state[0] > IPF_TCPS_ESTABLISHED) ||
 		   (is->is_sti.tqe_state[1] > IPF_TCPS_ESTABLISHED)) {
-#endif
 		fr_delstate(is, ISL_ORPHAN);
 #endif
+	RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
 	}
-	RWLOCK_EXIT(&ipf_state);
 }
 
 
@@ -3897,7 +4106,6 @@ ipstate_t *is;
 int rev;
 {
 	ipftq_t *oifq, *nifq;
-
 
 	if ((is->is_sti.tqe_flags & TQE_RULEBASED) != 0)
 		nifq = is->is_tqehead[rev];

@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/ip_proxy.c 1.1                              */
+/* 71ipfl71c src/ipfl/kernext/ip_proxy.c 1.1                              */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006                   */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)09  1.1  src/ipfl/kernext/ip_proxy.c, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/8/06 07:26:42";
+static char sccsid[] = "@(#)09  1.1  src/ipfl/kernext/ip_proxy.c, ipflt, 71ipfl71c 5/8/06 07:26:42";
 /*
  * Copyright (C) 1997-2003 by Darren Reed.
  *
@@ -500,7 +500,7 @@ nat_t *nat;
 			printf("appr_check: l4 checksum failure %d\n",
 				fin->fin_p);
 		if (fin->fin_p == IPPROTO_TCP)
-			frstats[fin->fin_out].fr_tcpbad++;
+			PERCPU_STATS_INCL(fin->fin_global_cpuidx, fin->fin_out, fr_tcpbad);
 		return -1;
 	}
 #endif

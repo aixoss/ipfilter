@@ -1,24 +1,27 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/ip_pool.c 1.1                               */
+/* 71ipfl71c src/ipfl/kernext/ip_pool.c 1.2                               */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006                   */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)08  1.2  src/ipfl/kernext/ip_pool.c, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/10/06 14:44:38";
+static char sccsid[] = "@(#)08  1.2  src/ipfl/kernext/ip_pool.c, ipflt, 71ipfl71c 5/10/06 14:44:38";
 /*
  * Copyright (C) 1993-2001, 2003 by Darren Reed.
  *
  * See the IPFILTER.LICENCE file for details on licencing.
+ */
+/*
+ * Copyright 2026 Cisco Systems, Inc. All Rights Reserved.
  */
 #if defined(KERNEL) || defined(_KERNEL)
 # undef KERNEL
@@ -78,8 +81,8 @@ struct file;
 # include "radix_ipf_local.h"
 # define _RADIX_H_
 #endif
-#include <net/if.h>
 #include <netinet/in.h>
+#include <net/if.h>
 #if defined(_KERNEL) && defined(AIX)
 # include <sys/mbuf.h>
 #endif
@@ -113,7 +116,6 @@ static const char rcsid[] = "@(#)$Id: ip_pool.c,v 2.55.2.15 2005/11/13 15:38:37 
 # endif
 
 ip_pool_stat_t ipoolstat;
-ipfrwlock_t ip_poolrw;
 
 /*
  * Binary tree routines from Sedgewick and enhanced to do ranges of addresses.
@@ -275,7 +277,7 @@ int ip_pool_init()
 /* ------------------------------------------------------------------------ */
 /* Function:    ip_pool_fini                                                */
 /* Returns:     int     - 0 = success, else error                           */
-/* Locks:       WRITE(ipf_global)                                           */
+/* Locks:       WRITE(ipf_global_pcpu)                                      */
 /*                                                                          */
 /* Clean up all the pool data structures allocated and call the cleanup     */
 /* function for the radix tree that supports the pools. ip_pool_destroy() is*/
@@ -287,7 +289,7 @@ void ip_pool_fini()
 	iplookupop_t op;
 	int i;
 
-	ASSERT(rw_read_locked(&ipf_global.ipf_lk) == 0);
+	/* ipf_global_pcpu write lock held by ipldetach() -- no assert needed */
 
 	for (i = 0; i <= IPL_LOGMAX; i++) {
 		for (q = ip_pool_list[i]; (p = q) != NULL; ) {
@@ -416,6 +418,34 @@ void *dptr;
 	rv = 1;
 	m = NULL;
 	addr = (i6addr_t *)dptr;
+
+	/*
+	 * Empty-pool early exit: if the pool has been flushed but the rule
+	 * referencing it has not been reloaded, ipo_list is NULL and the
+	 * radix tree cannot match anything.  Return -1 immediately.
+	 */
+	if (__builtin_expect(ipo->ipo_list == NULL, 0))
+		return -1;
+
+	/*
+	 * /32 exact-match fast path for IPv4: when the pool has exactly one
+	 * host (/32) entry, bypass the radix traversal with a single integer
+	 * compare.
+	 */
+	if (version == 4) {
+		ip_pool_node_t *only = ipo->ipo_list;
+		if (only != NULL && only->ipn_next == NULL &&
+		    only->ipn_mask.adf_addr.in4.s_addr == 0xffffffffU) {
+			if (only->ipn_addr.adf_addr.in4.s_addr ==
+			    addr->in4.s_addr) {
+				ipo->ipo_hits++;
+				only->ipn_hits++;
+				rv = only->ipn_info;
+			}
+			return rv;
+		}
+	}
+
 	bzero(&v, sizeof(v));
 	v.adf_len = offsetof(addrfamily_t, adf_addr);
 
@@ -430,8 +460,6 @@ void *dptr;
 	} else
 		return -1;
 
-	READ_ENTER(&ip_poolrw);
-
 	RADIX_NODE_HEAD_LOCK(ipo->ipo_head);
 	rn = ipo->ipo_head->rnh_matchaddr(&v, ipo->ipo_head);
 	RADIX_NODE_HEAD_UNLOCK(ipo->ipo_head);
@@ -442,7 +470,6 @@ void *dptr;
 		m->ipn_hits++;
 		rv = m->ipn_info;
 	}
-	RWLOCK_EXIT(&ip_poolrw);
 	return rv;
 }
 
@@ -466,8 +493,6 @@ int info;
 {
 	struct radix_node *rn;
 	ip_pool_node_t *x;
-
-	ASSERT(rw_read_locked(&ip_poolrw.ipf_lk) == 0);
 
 	KMALLOC(x, ip_pool_node_t *);
 	if (x == NULL) {
@@ -527,8 +552,6 @@ iplookupop_t *op;
 	char name[FR_GROUPLEN];
 	int poolnum, unit;
 	ip_pool_t *h;
-
-	ASSERT(rw_read_locked(&ip_poolrw.ipf_lk) == 0);
 
 	KMALLOC(h, ip_pool_t *);
 	if (h == NULL)
@@ -605,8 +628,6 @@ ip_pool_node_t *ipe;
 {
 	ip_pool_node_t **ipp, *n;
 
-	ASSERT(rw_read_locked(&ip_poolrw.ipf_lk) == 0);
-
 	for (ipp = &ipo->ipo_list; (n = *ipp) != NULL; ipp = &n->ipn_next) {
 		if (ipe == n) {
 			*n->ipn_pnext = n->ipn_next;
@@ -635,14 +656,14 @@ ip_pool_node_t *ipe;
 /* Function:    ip_pool_destroy                                             */
 /* Returns:     int    - 0 = success, else error                            */
 /* Parameters:  op(I)  -  information about the pool to remove              */
-/* Locks:       WRITE(ip_poolrw) or WRITE(ipf_global)                       */
+/* Locks:       WRITE(ip_poolrw) or WRITE(ipf_global_pcpu)                  */
 /*                                                                          */
 /* Search for a pool using paramters passed in and if it's not otherwise    */
 /* busy, free it.                                                           */
 /*                                                                          */
 /* NOTE: Because this function is called out of ipldetach() where ip_poolrw */
 /* may not be initialised, we can't use an ASSERT to enforce the locking    */
-/* assertion that one of the two (ip_poolrw,ipf_global) is held.            */
+/* assertion that one of the two (ip_poolrw,ipf_global_pcpu) is held.       */
 /* ------------------------------------------------------------------------ */
 int ip_pool_destroy(op)
 iplookupop_t *op;
@@ -665,19 +686,19 @@ iplookupop_t *op;
 /* Function:    ip_pool_flush                                               */
 /* Returns:     int    - number of pools deleted                            */
 /* Parameters:  fp(I)  - which pool(s) to flush                             */
-/* Locks:       WRITE(ip_poolrw) or WRITE(ipf_global)                       */
+/* Locks:       WRITE(ip_poolrw) or WRITE(ipf_global_pcpu)                  */
 /*                                                                          */
 /* Free all pools associated with the device that matches the unit number   */
 /* passed in with operation.                                                */
 /*                                                                          */
 /* NOTE: Because this function is called out of ipldetach() where ip_poolrw */
 /* may not be initialised, we can't use an ASSERT to enforce the locking    */
-/* assertion that one of the two (ip_poolrw,ipf_global) is held.            */
+/* assertion that one of the two (ip_poolrw,ipf_global_pcpu) is held.       */
 /* ------------------------------------------------------------------------ */
 int ip_pool_flush(fp)
 iplookupflush_t *fp;
 {
-	int i, num = 0, unit, err;
+	int i, num = 0, err_count = 0, unit, err;
 	ip_pool_t *p, *q;
 	iplookupop_t op;
 
@@ -695,10 +716,22 @@ iplookupflush_t *fp;
 			if (err == 0)
 				num++;
 			else
-				break;
+				err_count++;
+			/*
+			 * Do NOT break on error (e.g. EBUSY when a filter
+			 * rule still holds a reference to this pool).  A
+			 * break here would silently leave all subsequent
+			 * pools in the list un-flushed, causing EEXIST when
+			 * ippool -f tries to recreate them later.  Continue
+			 * so every pool is attempted regardless.
+			 *
+			 * On return, a negative value (-err_count) signals a
+			 * partial flush so callers can distinguish "all
+			 * destroyed" (>= 0) from "some pools still busy" (< 0).
+			 */
 		}
 	}
-	return num;
+	return (err_count > 0) ? -err_count : num;
 }
 
 
@@ -706,7 +739,7 @@ iplookupflush_t *fp;
 /* Function:    ip_pool_free                                                */
 /* Returns:     void                                                        */
 /* Parameters:  ipo(I) -  pointer to pool structure                         */
-/* Locks:       WRITE(ip_poolrw) or WRITE(ipf_global)                       */
+/* Locks:       WRITE(ip_poolrw) or WRITE(ipf_global_pcpu)                  */
 /*                                                                          */
 /* Deletes the pool strucutre passed in from the list of pools and deletes  */
 /* all of the address information stored in it, including any tree data     */
@@ -714,7 +747,7 @@ iplookupflush_t *fp;
 /*                                                                          */
 /* NOTE: Because this function is called out of ipldetach() where ip_poolrw */
 /* may not be initialised, we can't use an ASSERT to enforce the locking    */
-/* assertion that one of the two (ip_poolrw,ipf_global) is held.            */
+/* assertion that one of the two (ip_poolrw,ipf_global_pcpu) is held.       */
 /* ------------------------------------------------------------------------ */
 void ip_pool_free(ipo)
 ip_pool_t *ipo;
@@ -759,8 +792,6 @@ ip_pool_t *ipo;
 void ip_pool_deref(ipo)
 ip_pool_t *ipo;
 {
-
-	ASSERT(rw_read_locked(&ip_poolrw.ipf_lk) == 0);
 
 	ipo->ipo_ref--;
 	if (ipo->ipo_ref == 0)

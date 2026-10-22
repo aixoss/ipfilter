@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/netinet/ip_state.h 1.1                      */
+/* 71ipfl71c src/ipfl/kernext/netinet/ip_state.h 1.3                      */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006,2025              */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-/* @(#)30  1.2  src/ipfl/kernext/netinet/ip_state.h, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/10/06 12:55:30 */
+/* @(#)30  1.2  src/ipfl/kernext/netinet/ip_state.h, ipflt, 71ipfl71c 5/10/06 12:55:30 */
 /*
  * Copyright (C) 1995-2001 by Darren Reed.
  *
@@ -23,6 +23,12 @@
  * @(#)ip_state.h	1.3 1/12/96 (C) 1995 Darren Reed
  * $Id: ip_state.h,v 2.68.2.5 2005/08/20 13:48:25 darrenr Exp $
  */
+/*
+ * Copyright 2026 Cisco Systems, Inc. All Rights Reserved.
+ */
+
+#include "netinet/tcp.h"
+
 #ifndef	__IP_STATE_H__
 #define	__IP_STATE_H__
 
@@ -40,6 +46,10 @@ struct ipscan;
 #ifndef	IPSTATE_MAX
 # define	IPSTATE_MAX	4013	/* Maximum number of states held */
 #endif
+#ifndef IPSTATE_MAXBUCKET
+# define        IPSTATE_MAXBUCKET 0
+#endif
+
 
 #define	PAIRS(s1,d1,s2,d2)	((((s1) == (s2)) && ((d1) == (d2))) ||\
 				 (((s1) == (d2)) && ((d1) == (s2))))
@@ -246,6 +256,7 @@ extern	u_long	fr_icmpacktimeout;
 extern	u_long	fr_iptimeout;
 extern	int	fr_statemax;
 extern	int	fr_statesize;
+extern	int	fr_statemask;
 extern	int	fr_state_lock;
 extern	int	fr_state_maxbucket;
 extern	int	fr_state_maxbucket_reset;

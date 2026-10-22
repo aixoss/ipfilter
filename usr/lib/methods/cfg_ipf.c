@@ -1,7 +1,7 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/usr/lib/methods/cfg_ipf.c 1.3                       */
+/* 71ipfl71c src/ipfl/usr/lib/methods/cfg_ipf.c 1.3                       */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
@@ -14,13 +14,16 @@
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)99  1.3  src/ipfl/usr/lib/methods/cfg_ipf.c, ipflt, 53ipfl53H, 1737A_53ipfl53H 11/2/16 02:33:08";
+static char sccsid[] = "@(#)99  1.3  src/ipfl/usr/lib/methods/cfg_ipf.c, ipflt, 71ipfl71c 11/2/16 02:33:08";
 /*
  * Copyright (C) 2005 by Darren Reed.
  *
  * See the IPFILTER.LICENCE file for details on licencing.
  *
  * $Id: aix_cfg_ipf.c,v 1.1.2.1 2005/06/12 07:18:34 darrenr Exp $
+ */
+/*
+ * Copyright 2018 Illumio, Inc. All Rights Reserved.
  */
 #include <sys/param.h>
 #include <sys/types.h>
@@ -211,6 +214,7 @@ loadipf(int major, int minor, dev_t devno, char *path)
 	sysconfig(SYS_SINGLELOAD, &cfg, sizeof(cfg));
 	ipfcfg.kmid = cfg.kmid;
 #else
+	bzero(&ipfcfg, sizeof(ipfcfg));
 	ipfcfg.kmid = (mid_t)loadext(ipfpath, TRUE, TRUE);
 #endif
 	if (ipfcfg.kmid == (mid_t)NULL)
@@ -258,6 +262,7 @@ unloadipf(int major, int minor, dev_t devno)
 		exit(errno);
 	}
 
+	bzero(&ipfcfg, sizeof(ipfcfg));
 	ipfcfg.kmid = cfg.kmid;
 	ipfcfg.devno = devno;
 	ipfcfg.cmd = CFG_TERM;
@@ -294,6 +299,7 @@ queryipf(int major, int minor, dev_t devno)
 
 	printf("Kernel module ID: %d\n", cfg.kmid);
 
+	bzero(&ipfcfg, sizeof(ipfcfg));
 	ipfcfg.kmid = cfg.kmid;
 	ipfcfg.devno = devno;
 	ipfcfg.cmd = CFG_QVPD;

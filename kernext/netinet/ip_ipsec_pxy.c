@@ -1,13 +1,13 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/netinet/ip_ipsec_pxy.c 1.1                  */
+/* 71ipfl71c src/ipfl/kernext/netinet/ip_ipsec_pxy.c 1.2                  */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006                   */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
@@ -15,7 +15,7 @@
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
 /*
-static char sccsid[] = "@(#)44  1.2  src/ipfl/kernext/netinet/ip_ipsec_pxy.c, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/10/06 15:02:42";
+static char sccsid[] = "@(#)44  1.2  src/ipfl/kernext/netinet/ip_ipsec_pxy.c, ipflt, 71ipfl71c 5/10/06 15:02:42";
 */
 /*
  * Copyright (C) 2001-2003 by Darren Reed
@@ -262,13 +262,15 @@ nat_t *nat;
 		/*
 		 * Update state timeout/create state if missing.
 		 */
-		READ_ENTER(&ipf_state);
+		{
+		int _cpu_idx = IPF_PERCPU_IDX_INIT;
+		READ_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx);
 		if (ipsec->ipsc_state != NULL) {
 			fr_queueback(&ipsec->ipsc_state->is_sti);
 			ipsec->ipsc_state->is_die = nat->nat_age;
-			RWLOCK_EXIT(&ipf_state);
+			RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
 		} else {
-			RWLOCK_EXIT(&ipf_state);
+			RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
 			fi.fin_data[0] = 0;
 			fi.fin_data[1] = 0;
 			ipsec->ipsc_state = fr_addstate(&fi,
@@ -276,6 +278,7 @@ nat_t *nat;
 							SI_WILDP);
 			if (fi.fin_state != NULL)
 				fr_statederef(&fi, (ipstate_t **)&fi.fin_state);
+		}
 		}
 		ip->ip_p = p;
 	}
@@ -346,13 +349,16 @@ ap_session_t *aps;
 		 * *_del() is on a callback from aps_free(), from nat_delete()
 		 */
 
-		READ_ENTER(&ipf_state);
+		{
+		int _cpu_idx = IPF_PERCPU_IDX_INIT;
+		READ_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx);
 		if (ipsec->ipsc_state != NULL) {
 			ipsec->ipsc_state->is_die = fr_ticks + 1;
 			ipsec->ipsc_state->is_me = NULL;
 			fr_queuefront(&ipsec->ipsc_state->is_sti);
 		}
-		RWLOCK_EXIT(&ipf_state);
+		RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
+		}
 
 		ipsec->ipsc_state = NULL;
 		ipsec->ipsc_nat = NULL;

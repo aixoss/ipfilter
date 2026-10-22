@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/usr/sbin/ipnat_y.y 1.1                              */
+/* 71ipfl71c src/ipfl/usr/sbin/ipnat_y.y 1.2                              */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006                   */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-/* @(#)70  1.2  src/ipfl/usr/sbin/ipnat_y.y, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/10/06 15:24:17 */
+/* @(#)70  1.2  src/ipfl/usr/sbin/ipnat_y.y, ipflt, 71ipfl71c 5/10/06 15:24:17 */
 %{
 #ifdef  __FreeBSD__
 # ifndef __FreeBSD_cc_version

@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/ip_htable.c 1.1                             */
+/* 71ipfl71c src/ipfl/kernext/ip_htable.c 1.1                             */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006                   */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)04  1.1  src/ipfl/kernext/ip_htable.c, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/8/06 07:26:37";
+static char sccsid[] = "@(#)04  1.1  src/ipfl/kernext/ip_htable.c, ipflt, 71ipfl71c 5/8/06 07:26:37";
 /*
  * Copyright (C) 1993-2001, 2003 by Darren Reed.
  *
@@ -377,7 +377,6 @@ void *tptr, *aptr;
 	iphtent_t *ipe;
 	void *rval;
 
-	READ_ENTER(&ip_poolrw);
 	iph = tptr;
 	addr = aptr;
 
@@ -386,7 +385,6 @@ void *tptr, *aptr;
 		rval = ipe->ipe_ptr;
 	else
 		rval = NULL;
-	RWLOCK_EXIT(&ip_poolrw);
 	return rval;
 }
 
@@ -418,13 +416,11 @@ int version;
 	iph = tptr;
 	addr = aptr;
 
-	READ_ENTER(&ip_poolrw);
 	ipe = fr_iphmfind(iph, addr);
 	if (ipe != NULL)
 		rval = 0;
 	else
 		rval = 1;
-	RWLOCK_EXIT(&ip_poolrw);
 	return rval;
 }
 

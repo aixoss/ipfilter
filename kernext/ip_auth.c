@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/ip_auth.c 1.1                               */
+/* 71ipfl71c src/ipfl/kernext/ip_auth.c 1.2                               */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006,2026              */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)01  1.1  src/ipfl/kernext/ip_auth.c, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/8/06 07:26:33";
+static char sccsid[] = "@(#)01  1.2  src/ipfl/kernext/ip_auth.c, ipflt, 71ipfl71c, 2613A_71ipfl71c 2/25/26 04:12:56";
 /*
  * Copyright (C) 1998-2003 by Darren Reed & Guido van Rooij.
  *
@@ -463,15 +463,6 @@ fr_authioctlloop:
 			return 0;
 		}
 		RWLOCK_EXIT(&ipf_auth);
-		/*
-		 * We exit ipf_global here because a program that enters in
-		 * here will have a lock on it and goto sleep having this lock.
-		 * If someone were to do an 'ipf -D' the system would then
-		 * deadlock.  The catch with releasing it here is that the
-		 * caller of this function expects it to be held when we
-		 * return so we have to reacquire it in here.
-		 */
-		RWLOCK_EXIT(&ipf_global);
 
 		MUTEX_ENTER(&ipf_authmx);
 #ifdef	_KERNEL
@@ -499,7 +490,6 @@ fr_authioctlloop:
 # endif /* SOLARIS */
 #endif
 		MUTEX_EXIT(&ipf_authmx);
-		READ_ENTER(&ipf_global);
 		if (error == 0)
 			goto fr_authioctlloop;
 		break;

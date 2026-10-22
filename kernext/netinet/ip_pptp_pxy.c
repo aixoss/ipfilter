@@ -1,13 +1,13 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/kernext/netinet/ip_pptp_pxy.c 1.1                   */
+/* 71ipfl71c src/ipfl/kernext/netinet/ip_pptp_pxy.c 1.2                   */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006                   */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
@@ -15,7 +15,7 @@
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
 /*
-static char sccsid[] = "@(#)47  1.2  src/ipfl/kernext/netinet/ip_pptp_pxy.c, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/10/06 15:02:45";
+static char sccsid[] = "@(#)47  1.2  src/ipfl/kernext/netinet/ip_pptp_pxy.c, ipflt, 71ipfl71c 5/10/06 15:02:45";
 */
 /*
  * Copyright (C) 2002-2003 by Darren Reed
@@ -223,12 +223,14 @@ pptp_pxy_t *pptp;
 		}
 	}
 
-	READ_ENTER(&ipf_state);
+	{
+	int _cpu_idx = IPF_PERCPU_IDX_INIT;
+	READ_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx);
 	if (pptp->pptp_state != NULL) {
 		fr_queueback(&pptp->pptp_state->is_sti);
-		RWLOCK_EXIT(&ipf_state);
+		RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
 	} else {
-		RWLOCK_EXIT(&ipf_state);
+		RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
 		if (nat2 != NULL) {
 			if (nat->nat_dir == NAT_INBOUND)
 				fi.fin_fi.fi_daddr = nat2->nat_inip.s_addr;
@@ -240,6 +242,7 @@ pptp_pxy_t *pptp;
 					       0);
 		if (fi.fin_state != NULL)
 			fr_statederef(&fi, (ipstate_t **)&fi.fin_state);
+	}
 	}
 	ip->ip_p = p;
 	return;
@@ -532,13 +535,16 @@ ap_session_t *aps;
 		 * *_del() is on a callback from aps_free(), from nat_delete()
 		 */
 
-		READ_ENTER(&ipf_state);
+		{
+		int _cpu_idx = IPF_PERCPU_IDX_INIT;
+		READ_ENTER_PERCPU(&ipf_state_pcpu, _cpu_idx);
 		if (pptp->pptp_state != NULL) {
 			pptp->pptp_state->is_die = fr_ticks + 1;
 			pptp->pptp_state->is_me = NULL;
 			fr_queuefront(&pptp->pptp_state->is_sti);
 		}
-		RWLOCK_EXIT(&ipf_state);
+		RWLOCK_EXIT_PERCPU(&ipf_state_pcpu, _cpu_idx);
+		}
 
 		pptp->pptp_state = NULL;
 		pptp->pptp_nat = NULL;

@@ -1,20 +1,20 @@
 /* IBM_PROLOG_BEGIN_TAG                                                   */
 /* This is an automatically generated prolog.                             */
 /*                                                                        */
-/* 53ipfl53H src/ipfl/usr/lib/printpacket6.c 1.1                          */
+/* 71ipfl71c src/ipfl/usr/lib/printpacket6.c 1.1                          */
 /*                                                                        */
 /* Licensed Materials - Property of IBM                                   */
 /*                                                                        */
 /* Restricted Materials of IBM                                            */
 /*                                                                        */
-/* (C) COPYRIGHT International Business Machines Corp. 2006               */
+/* COPYRIGHT International Business Machines Corp. 2006                   */
 /* All Rights Reserved                                                    */
 /*                                                                        */
 /* US Government Users Restricted Rights - Use, duplication or            */
 /* disclosure restricted by GSA ADP Schedule Contract with IBM Corp.      */
 /*                                                                        */
 /* IBM_PROLOG_END_TAG                                                     */
-static char sccsid[] = "@(#)75  1.1  src/ipfl/usr/lib/printpacket6.c, ipflt, 53ipfl53H, 0619A_53ipfl53H 5/8/06 07:26:02";
+static char sccsid[] = "@(#)75  1.1  src/ipfl/usr/lib/printpacket6.c, ipflt, 71ipfl71c 5/8/06 07:26:02";
 #include "ipf.h"
 
 /*
