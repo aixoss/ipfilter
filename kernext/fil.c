@@ -173,7 +173,12 @@ extern	int	opts;
 #endif /* _KERNEL */
 
 
-fr_info_t	frcache[2][8];
+/*
+ * Per-CPU result cache; see FRCACHE_SLOTS in ip_fil.h.  Each CPU slot is
+ * cacheline-aligned (128 bytes), like frstats_pcpu.  Zero-initialised.
+ */
+frcache_pcpu_t	frcache_pcpu[IPF_MAX_CPUS] __attribute__((aligned(128)));
+volatile u_int	frcache_gen = 0;
 /*
  * Per-CPU statistics array.  Each CPU updates its own [cpu_slot][in/out]
  * entry without atomics; fr_getstat() and fr_zerostats() operate on all
@@ -2157,27 +2162,33 @@ fr_info_t *fin;
 u_32_t *passp;
 {
 	frentry_t *fr;
-	fr_info_t *fc;
+	fr_info_t *fc = NULL;
+	frcache_pcpu_t *fcp;
 	u_32_t pass;
 	int out;
-	int ipf_cpu_idx_frcache = IPF_PERCPU_IDX_INIT;
 
 	out = fin->fin_out;
 	pass = *passp;
 
 	/*
-	 * If a packet is found in the auth table, then skip checking
-	 * the access lists for permission but we do need to consider
-	 * the result as if it were from the ACL's.
+	 * Use this CPU's private result cache.  No lock is needed: fr_check()
+	 * holds ipf_global_pcpu (read) at PL_IMP, so the CPU is stable and
+	 * nothing else touches this copy.  A rule change bumps frcache_gen
+	 * under the global write lock; clear our copy lazily.
+	 *
+	 * CPUs numbered >= IPF_MAX_CPUS would share a slot with another CPU
+	 * that can run concurrently, so they skip the cache (fc == NULL).
 	 */
-	fc = &frcache[out][CACHE_HASH(fin)];
-	READ_ENTER_PERCPU(&ipf_frcache_pcpu, ipf_cpu_idx_frcache);
-	if (!bcmp((char *)fin, (char *)fc, FI_CSIZE)) {
-		/*
-		 * copy cached data so we can unlock the mutexes earlier.
-		 */
+	if ((u_int)mycpu() < IPF_MAX_CPUS) {
+		fcp = &frcache_pcpu[fin->fin_global_cpuidx];
+		if (fcp->fcc_gen != frcache_gen) {
+			bzero((char *)fcp->fcc_ent, sizeof(fcp->fcc_ent));
+			fcp->fcc_gen = frcache_gen;
+		}
+		fc = &fcp->fcc_ent[out][CACHE_HASH(fin)];
+	}
+	if ((fc != NULL) && !bcmp((char *)fin, (char *)fc, FI_CSIZE)) {
 		bcopy((char *)fc, (char *)fin, FI_COPYSIZE);
-		RWLOCK_EXIT_PERCPU(&ipf_frcache_pcpu, ipf_cpu_idx_frcache);
 		PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_chit);
 
 		if ((fr = fin->fin_fr) != NULL) {
@@ -2185,7 +2196,6 @@ u_32_t *passp;
 			pass = fr->fr_flags;
 		}
 	} else {
-		RWLOCK_EXIT_PERCPU(&ipf_frcache_pcpu, ipf_cpu_idx_frcache);
 #ifdef	USE_INET6
 		if (fin->fin_v == 6)
 			fin->fin_fr = ipfilter6[out][fr_active];
@@ -2195,13 +2205,9 @@ u_32_t *passp;
 		if (fin->fin_fr != NULL)
 			pass = fr_scanlist(fin, fr_pass);
 
-		if (((pass & FR_KEEPSTATE) == 0) &&
+		if ((fc != NULL) && ((pass & FR_KEEPSTATE) == 0) &&
 		    ((fin->fin_flx & FI_DONTCACHE) == 0)) {
-			WRITE_ENTER_PERCPU(&ipf_frcache_pcpu,
-			    ipf_cpu_idx_frcache);
 			bcopy((char *)fin, (char *)fc, FI_COPYSIZE);
-			RWLOCK_EXIT_PERCPU(&ipf_frcache_pcpu,
-			    ipf_cpu_idx_frcache);
 		}
 		if ((pass & FR_NOMATCH)) {
 			PERCPU_STATS_INCL(fin->fin_global_cpuidx, out, fr_nom);
@@ -3489,7 +3495,7 @@ int proto, flags;
 	{
 	int _cpu_idx = IPF_PERCPU_IDX_INIT;
 	WRITE_ENTER_PERCPU(&ipf_global_pcpu, _cpu_idx);
-	bzero((char *)frcache, sizeof(frcache));
+	FRCACHE_INVALIDATE();
 
 	set = fr_active;
 	if ((flags & FR_INACTIVE) == FR_INACTIVE)
@@ -4423,7 +4429,7 @@ caddr_t data;
 	{
 	int _cpu_idx = IPF_PERCPU_IDX_INIT;
 	WRITE_ENTER_PERCPU(&ipf_global_pcpu, _cpu_idx);
-	bzero((char *)frcache, sizeof(frcache));
+	FRCACHE_INVALIDATE();
 
 	for (; (f = *ftail) != NULL; ftail = &f->fr_next) {
 		if ((fp->fr_cksum != f->fr_cksum) ||

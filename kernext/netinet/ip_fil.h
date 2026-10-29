@@ -393,6 +393,34 @@ typedef	struct	ipfunc_resolve	{
 #define	FI_COPYSIZE	offsetof(fr_info_t, fin_dp)
 
 /*
+ * Result cache (frcache), one private copy per CPU slot -- the same scheme
+ * as frstats_pcpu.  FRCACHE_SLOTS is the number of entries per direction per
+ * CPU (power of 2).  Static memory is IPF_MAX_CPUS * sizeof(frcache_pcpu_t),
+ * about 53 KB per CPU slot at 128 slots (~13 MB total, pinned with the kext).
+ *
+ * No lock is needed to access a CPU's copy: fr_check() holds
+ * ipf_global_pcpu (read) at PL_IMP for its whole duration, so the thread
+ * cannot migrate or be preempted on its CPU, and fin_global_cpuidx selects
+ * the copy.  The slot is mycpu() % IPF_MAX_CPUS, so on a machine with more
+ * than IPF_MAX_CPUS logical CPUs several CPUs would map to one slot and
+ * i_disable() would NOT serialise them (it is per-CPU).  fr_firewall()
+ * therefore bypasses the cache (full rule scan, no store) when
+ * mycpu() >= IPF_MAX_CPUS.  That is always correct, just slower.
+ *
+ * Invalidation: callers that change rules do FRCACHE_INVALIDATE() while
+ * holding ipf_global_pcpu in WRITE mode (no fr_check() can be running).  Each
+ * CPU compares fcc_gen with frcache_gen and clears only its own copy on its
+ * next packet, so rule loading never has to zero the whole array.
+ */
+#define	FRCACHE_SLOTS	128
+#define	FRCACHE_MASK	(FRCACHE_SLOTS - 1)
+
+typedef struct frcache_pcpu {
+	u_int		fcc_gen;
+	fr_info_t	fcc_ent[2][FRCACHE_SLOTS];
+} frcache_pcpu_t;
+
+/*
  * Structure for holding IPFilter's tag information
  */
 #define	IPFTAG_LEN	16
@@ -1322,7 +1350,6 @@ extern	ipfrwlock_t	ipf_frcache;
  * in-flight callers before destroying data structures and sub-locks.
  */
 extern	ipfrwlock_percpu_t	ipf_global_pcpu;
-extern	ipfrwlock_percpu_t	ipf_frcache_pcpu;
 extern	ipfrwlock_percpu_t	ipf_state_pcpu;
 extern	ipfrwlock_percpu_t	ipf_nat_pcpu;
 extern	ipfrwlock_percpu_t	ipf_frag_pcpu;
@@ -1439,7 +1466,10 @@ extern	int	ipl_logmax;
 extern	int	ipl_logall;
 extern	int	ipl_logsize;
 extern	u_long	fr_ticks;
-extern	fr_info_t	frcache[2][8];
+extern	frcache_pcpu_t	frcache_pcpu[IPF_MAX_CPUS];
+extern	volatile u_int	frcache_gen;
+/* Call only with ipf_global_pcpu held in WRITE mode (or before fr_running). */
+#define	FRCACHE_INVALIDATE()	(frcache_gen++)
 extern	char	ipfilter_version[];
 extern	iplog_t	**iplh[IPL_LOGMAX+1], *iplt[IPL_LOGMAX+1];
 extern	int	iplused[IPL_LOGMAX + 1];

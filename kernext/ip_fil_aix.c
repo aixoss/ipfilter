@@ -149,7 +149,6 @@ int		ipf_locks_done = 0;
  * between adjacent per-CPU lock structures.
  */
 ipfrwlock_percpu_t	ipf_global_pcpu  __attribute__((aligned(128)));
-ipfrwlock_percpu_t	ipf_frcache_pcpu __attribute__((aligned(128)));
 ipfrwlock_percpu_t	ipf_state_pcpu   __attribute__((aligned(128)));
 ipfrwlock_percpu_t	ipf_nat_pcpu     __attribute__((aligned(128)));
 ipfrwlock_percpu_t	ipf_frag_pcpu    __attribute__((aligned(128)));
@@ -295,7 +294,7 @@ int ipfattach()
 		return EBUSY;
 	}
 
-	bzero((char *)frcache, sizeof(frcache));
+	FRCACHE_INVALIDATE();
 	MUTEX_INIT(&ipf_rw, "ipf rw mutex");
 	MUTEX_INIT(&ipf_timeoutlock, "ipf timeout lock mutex");
 	RWLOCK_INIT(&ipf_mutex,    "ipf core rwlock");
@@ -303,7 +302,6 @@ int ipfattach()
 	RWLOCK_INIT(&ipf_ipidfrag, "ipf IP NAT-Frag rwlock");
 	/* Per-CPU shadow locks for the hot read paths. */
 	RWLOCK_INIT_PERCPU(&ipf_global_pcpu,  "ipf global rwlock percpu");
-	RWLOCK_INIT_PERCPU(&ipf_frcache_pcpu, "ipf cache rwlock percpu");
 	RWLOCK_INIT_PERCPU(&ipf_state_pcpu,   "ipf state rwlock percpu");
 	RWLOCK_INIT_PERCPU(&ipf_nat_pcpu,     "ipf nat rwlock percpu");
 	RWLOCK_INIT_PERCPU(&ipf_frag_pcpu,    "ipf frag rwlock percpu");
@@ -315,7 +313,7 @@ int ipfattach()
 		return EIO;
 	}
 
-	bzero((char *)frcache, sizeof(frcache));
+	FRCACHE_INVALIDATE();
 #if 0
 	inbound_fw = fr_check_inbound;
 	outbound_fw = fr_check_outbound;
@@ -432,7 +430,6 @@ int ipldetach()
 	RW_DESTROY_PERCPU(&ipf_frag_pcpu);
 	RW_DESTROY_PERCPU(&ipf_nat_pcpu);
 	RW_DESTROY_PERCPU(&ipf_state_pcpu);
-	RW_DESTROY_PERCPU(&ipf_frcache_pcpu);
 	RW_DESTROY_PERCPU(&ip_pool_pcpu);
 	RW_DESTROY(&ipf_frcache);
 	RW_DESTROY(&ipf_mutex);
@@ -763,9 +760,18 @@ int mode;
 		if (!(mode & FWRITE))
 			error = EPERM;
 		else {
-			bzero((char *)frcache, sizeof(frcache[0]) * 2);
+			/*
+			 * Swap under the global write lock so no fr_check()
+			 * is mid-lookup, and invalidate the per-CPU result
+			 * caches (they hold rules from the old active set).
+			 */
+			int _cpu_idx = IPF_PERCPU_IDX_INIT;
+
+			WRITE_ENTER_PERCPU(&ipf_global_pcpu, _cpu_idx);
+			FRCACHE_INVALIDATE();
 			*(u_int *)data = fr_active;
 			fr_active = 1 - fr_active;
+			RWLOCK_EXIT_PERCPU_IOCTL(&ipf_global_pcpu, _cpu_idx);
 		}
 		break;
 	case SIOCGETFS :

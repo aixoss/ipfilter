@@ -1385,8 +1385,23 @@ extern void* getifp __P((char *, int));
 #  define	M_LEN(x)	(x)->m_len
 #  define	M_DUPLICATE(x)	m_copy((x), 0, M_COPYALL)
 #  define	GETKTIME(x)     curtime((struct timestruc_t *)x)
-#  define	CACHE_HASH(x)	((IFNAME(fin->fin_ifp)[0] + \
-				  ((struct ifnet *)fin->fin_ifp)->if_unit) & 7)
+/*
+ * Flow hash over every field of the cache key that varies per flow
+ * (addresses, both ports, protocol, TCP flags).  Each field is scrambled
+ * with an odd multiplier, and the high bits of the product (which depend on
+ * every input bit) are folded down into the slot index.  Flows that differ
+ * in only one field (e.g. only the port, as for ACKs from a fixed server
+ * port) therefore still spread across all slots.
+ */
+#  define	CACHE_HASH_RAW(x) \
+			(((u_int)(x)->fin_saddr * 0x9E3779B1U) ^ \
+			 ((u_int)(x)->fin_daddr * 0x85EBCA6BU) ^ \
+			 ((u_int)(x)->fin_ports * 0xC2B2AE35U) ^ \
+			 (((u_int)(x)->fin_p | \
+			   ((u_int)(x)->fin_tcpf << 8)) * 0x27D4EB2FU))
+#  define	CACHE_HASH(x)	((CACHE_HASH_RAW(x) ^ \
+			  (CACHE_HASH_RAW(x) >> 15) ^ \
+			  (CACHE_HASH_RAW(x) >> 24)) & FRCACHE_MASK)
 #  define	IPF_PANIC(x,y)
 typedef struct mbuf mb_t;
 # endif /* _KERNEL */
